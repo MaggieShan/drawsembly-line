@@ -3,12 +3,27 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Part } from "@/lib/themes";
 
-type Stroke = {
+type Point = [number, number];
+type ShapeTool = "line" | "rectangle" | "circle" | "triangle";
+type Tool = "pen" | "eraser" | ShapeTool;
+
+type PathStroke = {
+  kind: "path";
   color: string;
   size: number;
   erase: boolean;
-  points: [number, number][];
+  points: Point[];
 };
+
+type ShapeStroke = {
+  kind: "shape";
+  shape: ShapeTool;
+  color: string;
+  size: number;
+  points: [Point, Point];
+};
+
+type Stroke = PathStroke | ShapeStroke;
 
 const COLORS = [
   "#000000",
@@ -26,9 +41,68 @@ const COLORS = [
 ];
 
 const SIZES = [4, 8, 14, 26];
+const SHAPE_TOOLS: { tool: ShapeTool; label: string }[] = [
+  { tool: "line", label: "╱ Line" },
+  { tool: "rectangle", label: "▭ Rectangle" },
+  { tool: "circle", label: "◯ Circle" },
+  { tool: "triangle", label: "△ Triangle" },
+];
 
 /** Internal canvas resolution multiplier for smoother lines. */
 const SCALE = 2;
+
+function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
+  ctx.lineWidth = stroke.size * SCALE;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  if (stroke.kind === "path") {
+    const [first, ...rest] = stroke.points;
+    if (!first) return;
+
+    ctx.globalCompositeOperation = stroke.erase
+      ? "destination-out"
+      : "source-over";
+    ctx.strokeStyle = stroke.color;
+    ctx.beginPath();
+    ctx.moveTo(first[0], first[1]);
+    if (rest.length === 0) ctx.lineTo(first[0] + 0.01, first[1] + 0.01);
+    for (const [x, y] of rest) ctx.lineTo(x, y);
+    ctx.stroke();
+    return;
+  }
+
+  const [[startX, startY], [endX, endY]] = stroke.points;
+  const left = Math.min(startX, endX);
+  const right = Math.max(startX, endX);
+  const top = Math.min(startY, endY);
+  const bottom = Math.max(startY, endY);
+  const width = right - left;
+  const height = bottom - top;
+
+  ctx.globalCompositeOperation = "source-over";
+  ctx.strokeStyle = stroke.color;
+  ctx.beginPath();
+
+  if (stroke.shape === "line") {
+    ctx.moveTo(startX, startY);
+    ctx.lineTo(endX, endY);
+  } else if (stroke.shape === "rectangle") {
+    ctx.rect(left, top, width, height);
+  } else if (stroke.shape === "circle") {
+    const diameter = Math.max(width, height);
+    const x = endX < startX ? startX - diameter : startX;
+    const y = endY < startY ? startY - diameter : startY;
+    ctx.arc(x + diameter / 2, y + diameter / 2, diameter / 2, 0, Math.PI * 2);
+  } else {
+    ctx.moveTo(left + width / 2, top);
+    ctx.lineTo(right, bottom);
+    ctx.lineTo(left, bottom);
+    ctx.closePath();
+  }
+
+  ctx.stroke();
+}
 
 export default function DrawingCanvas({
   part,
@@ -44,13 +118,19 @@ export default function DrawingCanvas({
   const strokesRef = useRef<Stroke[]>([]);
   const currentRef = useRef<Stroke | null>(null);
   const sendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dirtyRef = useRef(false);
+  const flushSnapshotRef = useRef<() => void>(() => {});
   const [color, setColor] = useState("#000000");
   const [size, setSize] = useState(8);
-  const [tool, setTool] = useState<"pen" | "eraser">("pen");
+  const [tool, setTool] = useState<Tool>("pen");
   const [strokeCount, setStrokeCount] = useState(0);
 
   const w = part.rect.w * SCALE;
   const h = part.rect.h * SCALE;
+
+  const setCanvasRef = useCallback((canvas: HTMLCanvasElement | null) => {
+    if (canvas) canvasRef.current = canvas;
+  }, []);
 
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -61,19 +141,7 @@ export default function DrawingCanvas({
     const all = currentRef.current
       ? [...strokesRef.current, currentRef.current]
       : strokesRef.current;
-    for (const s of all) {
-      ctx.globalCompositeOperation = s.erase ? "destination-out" : "source-over";
-      ctx.strokeStyle = s.color;
-      ctx.lineWidth = s.size * SCALE;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.beginPath();
-      const [first, ...rest] = s.points;
-      ctx.moveTo(first[0], first[1]);
-      if (rest.length === 0) ctx.lineTo(first[0] + 0.01, first[1] + 0.01);
-      for (const [x, y] of rest) ctx.lineTo(x, y);
-      ctx.stroke();
-    }
+    for (const s of all) drawStroke(ctx, s);
     ctx.globalCompositeOperation = "source-over";
   }, []);
 
@@ -88,29 +156,44 @@ export default function DrawingCanvas({
     if (!ctx) return;
     ctx.drawImage(canvas, 0, 0, out.width, out.height);
     onSnapshot(part.id, out.toDataURL("image/png"));
+    dirtyRef.current = false;
   }, [part, onSnapshot]);
+
+  const flushSnapshot = useCallback(() => {
+    if (sendTimerRef.current) clearTimeout(sendTimerRef.current);
+    sendTimerRef.current = null;
+    if (!dirtyRef.current) return;
+    snapshot();
+  }, [snapshot]);
 
   const scheduleSnapshot = useCallback(() => {
     if (sendTimerRef.current) clearTimeout(sendTimerRef.current);
-    sendTimerRef.current = setTimeout(snapshot, 700);
-  }, [snapshot]);
+    sendTimerRef.current = setTimeout(flushSnapshot, 700);
+  }, [flushSnapshot]);
 
   // Final flush right before the deadline.
   useEffect(() => {
     if (!deadline) return;
     const ms = deadline - Date.now() - 250;
-    if (ms <= 0) return;
-    const t = setTimeout(snapshot, ms);
+    if (ms <= 0) {
+      flushSnapshot();
+      return;
+    }
+    const t = setTimeout(flushSnapshot, ms);
     return () => clearTimeout(t);
-  }, [deadline, snapshot]);
+  }, [deadline, flushSnapshot]);
+
+  useEffect(() => {
+    flushSnapshotRef.current = flushSnapshot;
+  }, [flushSnapshot]);
 
   useEffect(() => {
     return () => {
-      if (sendTimerRef.current) clearTimeout(sendTimerRef.current);
+      flushSnapshotRef.current();
     };
   }, []);
 
-  function getPos(e: React.PointerEvent<HTMLCanvasElement>): [number, number] {
+  function getPos(e: React.PointerEvent<HTMLCanvasElement>): Point {
     const canvas = canvasRef.current!;
     const rect = canvas.getBoundingClientRect();
     return [
@@ -122,18 +205,36 @@ export default function DrawingCanvas({
   function onPointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
     if (e.button !== 0 && e.pointerType === "mouse") return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    currentRef.current = {
-      color,
-      size,
-      erase: tool === "eraser",
-      points: [getPos(e)],
-    };
+    const pos = getPos(e);
+    currentRef.current =
+      tool === "pen" || tool === "eraser"
+        ? {
+            kind: "path",
+            color,
+            size,
+            erase: tool === "eraser",
+            points: [pos],
+          }
+        : {
+            kind: "shape",
+            shape: tool,
+            color,
+            size,
+            points: [pos, pos],
+          };
+    dirtyRef.current = true;
     redraw();
   }
 
   function onPointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
     if (!currentRef.current) return;
-    currentRef.current.points.push(getPos(e));
+    const pos = getPos(e);
+    if (currentRef.current.kind === "path") {
+      currentRef.current.points.push(pos);
+    } else {
+      currentRef.current.points = [currentRef.current.points[0], pos];
+    }
+    dirtyRef.current = true;
     redraw();
   }
 
@@ -141,6 +242,7 @@ export default function DrawingCanvas({
     if (!currentRef.current) return;
     strokesRef.current.push(currentRef.current);
     currentRef.current = null;
+    dirtyRef.current = true;
     setStrokeCount(strokesRef.current.length);
     redraw();
     scheduleSnapshot();
@@ -148,6 +250,7 @@ export default function DrawingCanvas({
 
   function undo() {
     strokesRef.current.pop();
+    dirtyRef.current = true;
     setStrokeCount(strokesRef.current.length);
     redraw();
     scheduleSnapshot();
@@ -155,6 +258,8 @@ export default function DrawingCanvas({
 
   function clearAll() {
     strokesRef.current = [];
+    currentRef.current = null;
+    dirtyRef.current = true;
     setStrokeCount(0);
     redraw();
     scheduleSnapshot();
@@ -172,11 +277,15 @@ export default function DrawingCanvas({
               style={{
                 background: c,
                 borderColor:
-                  color === c && tool === "pen" ? "#a78bfa" : "rgba(255,255,255,0.2)",
+                  color === c && tool !== "eraser"
+                    ? "#a78bfa"
+                    : "rgba(255,255,255,0.2)",
               }}
               onClick={() => {
                 setColor(c);
-                setTool("pen");
+                setTool((currentTool) =>
+                  currentTool === "eraser" ? "pen" : currentTool
+                );
               }}
             />
           ))}
@@ -215,6 +324,19 @@ export default function DrawingCanvas({
           >
             🧽 Eraser
           </button>
+          {SHAPE_TOOLS.map(({ tool: shapeTool, label }) => (
+            <button
+              key={shapeTool}
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+                tool === shapeTool ? "bg-violet-500/40" : "hover:bg-white/10"
+              }`}
+              onClick={() => setTool(shapeTool)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1.5 rounded-xl bg-white/5 p-2">
           <button
             className="rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-white/10 disabled:opacity-30"
             disabled={strokeCount === 0}
@@ -233,7 +355,7 @@ export default function DrawingCanvas({
       </div>
 
       <canvas
-        ref={canvasRef}
+        ref={setCanvasRef}
         width={w}
         height={h}
         className="w-full max-w-2xl cursor-crosshair rounded-xl bg-white shadow-lg"

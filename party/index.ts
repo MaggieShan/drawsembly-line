@@ -10,6 +10,7 @@ import type {
   ShuffleMode,
 } from "../lib/protocol";
 import { PLAYER_COLORS } from "../lib/protocol";
+import type { Part } from "../lib/themes";
 import {
   DEFAULT_ROUND_THEME_POOLS,
   DEFAULT_ROUND_THEMES,
@@ -62,6 +63,7 @@ export default class GameServer implements Party.Server {
   roundIndex = 0;
   drawingEndsAt: number | null = null;
   private drawTimer: ReturnType<typeof setTimeout> | null = null;
+  private finalSnapshotUntil: number | null = null;
 
   constructor(readonly room: Party.Room) {}
 
@@ -138,6 +140,37 @@ export default class GameServer implements Party.Server {
     }
   }
 
+  private partImageMessage(
+    roundIndex: number,
+    groupIndex: number,
+    partId: string,
+    dataUrl: string
+  ): ServerMessage {
+    return {
+      type: "part_image",
+      roundIndex,
+      groupIndex,
+      partId,
+      dataUrl,
+    };
+  }
+
+  private sendPartImage(
+    roundIndex: number,
+    groupIndex: number,
+    partId: string,
+    dataUrl: string,
+    target?: Party.Connection<ConnState>
+  ) {
+    const msg = this.partImageMessage(roundIndex, groupIndex, partId, dataUrl);
+    if (target) {
+      this.send(target, msg);
+      return;
+    }
+    const s = JSON.stringify(msg);
+    for (const conn of this.room.getConnections<ConnState>()) conn.send(s);
+  }
+
   /** Send every stored part image of the given rounds to a connection (or all). */
   private sendImages(
     roundIndexes: number[],
@@ -149,13 +182,7 @@ export default class GameServer implements Party.Server {
       if (!round) continue;
       round.groups.forEach((group, gi) => {
         for (const [partId, dataUrl] of Object.entries(group.submissions)) {
-          const msg: ServerMessage = {
-            type: "part_image",
-            roundIndex: ri,
-            groupIndex: gi,
-            partId,
-            dataUrl,
-          };
+          const msg = this.partImageMessage(ri, gi, partId, dataUrl);
           const s = JSON.stringify(msg);
           for (const c of conns) c.send(s);
         }
@@ -166,9 +193,56 @@ export default class GameServer implements Party.Server {
   private revealedRoundIndexes(): number[] {
     return this.rounds.flatMap((r, i) => (r.revealed ? [i] : []));
   }
+  private shuffled<T>(items: readonly T[]): T[] {
+    return [...items]
+      .map((item) => ({ item, r: Math.random() }))
+      .sort((a, b) => a.r - b.r)
+      .map(({ item }) => item);
+  }
 
   private assignableParts(themeId: string) {
     return getTheme(themeId).parts.filter((p) => !p.prefill);
+  }
+
+  private balancedAssignmentParts(parts: Part[], count: number): Part[] {
+    const byGroup = new Map<string, Part[]>();
+    const ungrouped: Part[] = [];
+    for (const part of parts) {
+      if (!part.assignmentGroup) {
+        ungrouped.push(part);
+        continue;
+      }
+      const groupParts = byGroup.get(part.assignmentGroup) ?? [];
+      groupParts.push(part);
+      byGroup.set(part.assignmentGroup, groupParts);
+    }
+    if (byGroup.size <= 1) return parts.slice(0, count);
+
+    const buckets = new Map(
+      [...byGroup.entries()].map(([groupId, groupParts]) => [
+        groupId,
+        this.shuffled(groupParts),
+      ])
+    );
+    const groupOrder = this.shuffled([...buckets.keys()]);
+    const ordered: Part[] = [];
+
+    while (ordered.length < count && ordered.length < parts.length) {
+      let addedThisPass = false;
+      for (const groupId of groupOrder) {
+        if (ordered.length >= count) break;
+        const part = buckets.get(groupId)?.shift();
+        if (!part) continue;
+        ordered.push(part);
+        addedThisPass = true;
+      }
+      if (!addedThisPass) break;
+    }
+
+    if (ordered.length < count && ungrouped.length > 0) {
+      ordered.push(...ungrouped.slice(0, count - ordered.length));
+    }
+    return ordered;
   }
 
   private newGroup(
@@ -206,14 +280,25 @@ export default class GameServer implements Party.Server {
     group.assignments = {};
     if (group.members.length === 0) return;
     const parts = this.assignableParts(group.themeId);
+    const usesAssignmentGroups = parts.some((p) => p.assignmentGroup);
+    const assignmentCount =
+      group.assignmentMode === "fill_all"
+        ? parts.length
+        : Math.min(group.members.length, parts.length);
+    const orderedParts = usesAssignmentGroups
+      ? this.balancedAssignmentParts(parts, assignmentCount)
+      : parts.slice(0, assignmentCount);
+    const members = usesAssignmentGroups
+      ? this.shuffled(group.members)
+      : group.members;
     if (group.assignmentMode === "fill_all") {
-      parts.forEach((part, i) => {
-        group.assignments[part.id] = group.members[i % group.members.length];
+      orderedParts.forEach((part, i) => {
+        group.assignments[part.id] = members[i % members.length];
       });
       return;
     }
-    parts.slice(0, group.members.length).forEach((part, i) => {
-      group.assignments[part.id] = group.members[i];
+    orderedParts.forEach((part, i) => {
+      group.assignments[part.id] = members[i];
     });
   }
 
@@ -227,10 +312,16 @@ export default class GameServer implements Party.Server {
       .map((p) => ({ id: p.id, r: Math.random() }))
       .sort((a, b) => a.r - b.r)
       .map((x) => x.id);
+    const defaultThemeIds = round.defaultThemeIds.length > 0
+      ? round.defaultThemeIds
+      : [DEFAULT_ROUND_THEMES[0] ?? "robot"];
     const maxSize = this.defaultGroupSize(round);
-    const groupCount = Math.max(1, Math.ceil(shuffled.length / maxSize));
-    const groups = Array.from({ length: groupCount }, () =>
-      this.newGroup(this.randomDefaultThemeId(round))
+    const groupCount = Math.max(
+      defaultThemeIds.length,
+      Math.ceil(shuffled.length / maxSize)
+    );
+    const groups = Array.from({ length: groupCount }, (_, i) =>
+      this.newGroup(defaultThemeIds[i % defaultThemeIds.length])
     );
     shuffled.forEach((pid, i) => groups[i % groupCount].members.push(pid));
     for (const g of groups) this.assignParts(g);
@@ -278,11 +369,18 @@ export default class GameServer implements Party.Server {
     this.drawTimer = setTimeout(() => this.finishDrawing(), delayMs);
   }
 
+  private finishDrawingAfterGrace() {
+    if (this.phase !== "drawing") return;
+    this.clearDrawTimer();
+    this.drawTimer = setTimeout(() => this.finishDrawing(), GRACE_MS);
+  }
+
   private finishDrawing() {
     if (this.phase !== "drawing") return;
     this.clearDrawTimer();
     this.phase = "reveal_wait";
     this.drawingEndsAt = null;
+    this.finalSnapshotUntil = Date.now() + GRACE_MS;
     this.broadcastSync();
     // Give the host a preview of what's been drawn.
     for (const conn of this.room.getConnections<ConnState>()) {
@@ -357,9 +455,13 @@ export default class GameServer implements Party.Server {
       case "snapshot": {
         const round = this.currentRound;
         if (!round) return;
+        const acceptsFinalSnapshot =
+          (this.phase === "reveal_wait" && !round.revealed) ||
+          ((this.phase === "reveal" || this.phase === "gallery") &&
+            this.finalSnapshotUntil != null &&
+            Date.now() <= this.finalSnapshotUntil);
         const acceptable =
-          this.phase === "drawing" ||
-          (this.phase === "reveal_wait" && !round.revealed);
+          this.phase === "drawing" || acceptsFinalSnapshot;
         if (!acceptable) return;
         const group = round.groups[msg.groupIndex];
         if (!group) return;
@@ -372,6 +474,26 @@ export default class GameServer implements Party.Server {
           return;
         group.submissions[msg.partId] = msg.dataUrl;
         this.broadcastSync();
+        if (round.revealed) {
+          this.sendPartImage(
+            this.roundIndex,
+            msg.groupIndex,
+            msg.partId,
+            msg.dataUrl
+          );
+        } else if (this.phase === "reveal_wait") {
+          for (const hostConn of this.room.getConnections<ConnState>()) {
+            if (this.isHost(hostConn)) {
+              this.sendPartImage(
+                this.roundIndex,
+                msg.groupIndex,
+                msg.partId,
+                msg.dataUrl,
+                hostConn
+              );
+            }
+          }
+        }
         return;
       }
       case "done": {
@@ -387,7 +509,7 @@ export default class GameServer implements Party.Server {
         );
         if (allDone) {
           // Small grace so final snapshots land.
-          setTimeout(() => this.finishDrawing(), GRACE_MS);
+          this.finishDrawingAfterGrace();
         }
         this.broadcastSync();
         return;
@@ -530,12 +652,13 @@ export default class GameServer implements Party.Server {
         if (!round) return;
         this.phase = "drawing";
         this.drawingEndsAt = Date.now() + round.drawSeconds * 1000;
+        this.finalSnapshotUntil = null;
         this.scheduleDrawTimer();
         this.broadcastSync();
         return;
       }
       case "end_drawing": {
-        this.finishDrawing();
+        this.finishDrawingAfterGrace();
         return;
       }
       case "reveal": {
@@ -583,6 +706,7 @@ export default class GameServer implements Party.Server {
         this.rounds = [];
         this.roundIndex = 0;
         this.drawingEndsAt = null;
+        this.finalSnapshotUntil = null;
         this.broadcastSync();
         return;
       }

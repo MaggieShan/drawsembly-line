@@ -13,7 +13,13 @@ export type Part = {
     | "square"
     | "zoo-background"
     | "aquarium-background"
-    | "farm-background";
+    | "farm-background"
+    | "factory-background";
+  /**
+   * Optional bucket used by repeatable/open-ended presets to spread players
+   * evenly across categories while still assigning concrete render slots.
+   */
+  assignmentGroup?: string;
 };
 
 export type Theme = {
@@ -25,6 +31,92 @@ export type Theme = {
   /** Parts are composited in array order (earlier = drawn first / underneath). */
   parts: Part[];
 };
+
+const FACTORY_PRODUCT_HINT =
+  "Draw what your ideal final product rolling out of a factory looks like.";
+const FACTORY_PART_HINT =
+  "Draw what an ideal piece of the factory looks like — machine part, gadget, tool, pipe, robot arm, or anything useful.";
+const FACTORY_WORKER_HINT =
+  "Draw what an ideal factory worker looks like — human, robot, creature, safety gear, heroic pose, your call.";
+export const FACTORY_DRAWABLE_SLOT_COUNT = 70;
+const FACTORY_CANVAS = { w: 2400, h: 1600 };
+
+function gridRects(
+  count: number,
+  columns: number,
+  startX: number,
+  startY: number,
+  w: number,
+  h: number,
+  gapX: number,
+  gapY: number
+): Rect[] {
+  return Array.from({ length: count }, (_, i) => ({
+    x: startX + (i % columns) * (w + gapX),
+    y: startY + Math.floor(i / columns) * (h + gapY),
+    w,
+    h,
+  }));
+}
+
+function factorySlot(
+  id: string,
+  label: string,
+  hint: string,
+  assignmentGroup: string,
+  rect: Rect
+): Part {
+  return { id, label, hint, assignmentGroup, rect };
+}
+
+const FACTORY_THEME_PARTS: Part[] = [
+  {
+    id: "factory-background",
+    label: "Factory background",
+    hint: "A factory assembly line: parts ride the belt, products finish at the end, and workers gather around.",
+    rect: { x: 0, y: 0, ...FACTORY_CANVAS },
+    prefill: "factory-background",
+  },
+  ...gridRects(24, 6, 160, 610, 150, 105, 55, 32).map((rect, i) =>
+    factorySlot(
+      `factory-part-${i + 1}`,
+      "Factory part",
+      FACTORY_PART_HINT,
+      "factory-part",
+      rect
+    )
+  ),
+  ...gridRects(23, 5, 1510, 360, 150, 125, 25, 30).map((rect, i) =>
+    factorySlot(
+      `factory-product-${i + 1}`,
+      "Factory product",
+      FACTORY_PRODUCT_HINT,
+      "factory-product",
+      rect
+    )
+  ),
+  ...[
+    ...gridRects(12, 12, 85, 75, 140, 190, 50, 0),
+    ...gridRects(11, 11, 185, 1320, 140, 190, 55, 0),
+  ].map((rect, i) =>
+    factorySlot(
+      `factory-worker-${i + 1}`,
+      "Factory worker",
+      FACTORY_WORKER_HINT,
+      "factory-worker",
+      rect
+    )
+  ),
+];
+
+const factoryDrawableSlotCount = FACTORY_THEME_PARTS.filter(
+  (part) => !part.prefill
+).length;
+if (factoryDrawableSlotCount !== FACTORY_DRAWABLE_SLOT_COUNT) {
+  throw new Error(
+    `Factory theme must have ${FACTORY_DRAWABLE_SLOT_COUNT} drawable slots; found ${factoryDrawableSlotCount}.`
+  );
+}
 
 export const THEMES: Theme[] = [
   {
@@ -695,12 +787,19 @@ export const THEMES: Theme[] = [
       },
     ],
   },
+  {
+    id: "factory",
+    name: "Factory",
+    emoji: "🏭",
+    canvas: FACTORY_CANVAS,
+    parts: FACTORY_THEME_PARTS,
+  },
 ];
 
 export const DEFAULT_ROUND_THEME_POOLS = [
   ["robot"],
   ["farm", "aquarium", "zoo"],
-  ["spiderman"],
+  ["factory"],
 ];
 
 export const DEFAULT_ROUND_THEMES = DEFAULT_ROUND_THEME_POOLS.map(

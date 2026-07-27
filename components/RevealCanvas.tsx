@@ -295,6 +295,162 @@ function drawFarmBackground(
   ctx.restore();
 }
 
+function drawFactoryBackground(
+  ctx: CanvasRenderingContext2D,
+  rect: { x: number; y: number; w: number; h: number }
+) {
+  ctx.save();
+
+  const wall = ctx.createLinearGradient(rect.x, rect.y, rect.x, rect.y + rect.h);
+  wall.addColorStop(0, "#dbeafe");
+  wall.addColorStop(0.32, "#cbd5e1");
+  wall.addColorStop(0.33, "#9ca3af");
+  wall.addColorStop(1, "#6b7280");
+  ctx.fillStyle = wall;
+  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+
+  const floorY = rect.y + rect.h * 0.33;
+  ctx.strokeStyle = "rgba(71, 85, 105, 0.28)";
+  ctx.lineWidth = 4;
+  for (let x = rect.x; x < rect.x + rect.w; x += 150) {
+    ctx.beginPath();
+    ctx.moveTo(x, rect.y);
+    ctx.lineTo(x, floorY);
+    ctx.stroke();
+  }
+  for (let y = rect.y + 80; y < floorY; y += 90) {
+    ctx.beginPath();
+    ctx.moveTo(rect.x, y);
+    ctx.lineTo(rect.x + rect.w, y);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = "#bfdbfe";
+  ctx.strokeStyle = "#1e3a8a";
+  ctx.lineWidth = 8;
+  for (let x = rect.x + 90; x < rect.x + rect.w - 250; x += 385) {
+    ctx.fillRect(x, rect.y + 300, 240, 110);
+    ctx.strokeRect(x, rect.y + 300, 240, 110);
+    ctx.beginPath();
+    ctx.moveTo(x + 120, rect.y + 300);
+    ctx.lineTo(x + 120, rect.y + 410);
+    ctx.moveTo(x, rect.y + 355);
+    ctx.lineTo(x + 240, rect.y + 355);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = "#64748b";
+  ctx.lineWidth = 32;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(rect.x + 70, rect.y + 470);
+  ctx.lineTo(rect.x + 650, rect.y + 470);
+  ctx.lineTo(rect.x + 650, rect.y + 340);
+  ctx.lineTo(rect.x + 1320, rect.y + 340);
+  ctx.lineTo(rect.x + 1320, rect.y + 470);
+  ctx.lineTo(rect.x + 2200, rect.y + 470);
+  ctx.stroke();
+
+  ctx.fillStyle = "#334155";
+  ctx.roundRect(rect.x + 80, rect.y + 435, 250, 260, 26);
+  ctx.roundRect(rect.x + 1165, rect.y + 410, 255, 280, 26);
+  ctx.fill();
+  ctx.fillStyle = "#f97316";
+  ctx.fillRect(rect.x + 118, rect.y + 472, 174, 36);
+  ctx.fillRect(rect.x + 1205, rect.y + 448, 175, 36);
+  ctx.fillStyle = "#22c55e";
+  ctx.beginPath();
+  ctx.arc(rect.x + 200, rect.y + 590, 42, 0, Math.PI * 2);
+  ctx.arc(rect.x + 1285, rect.y + 570, 42, 0, Math.PI * 2);
+  ctx.fill();
+
+  const beltX = rect.x + 110;
+  const beltY = rect.y + 545;
+  const beltW = 1360;
+  const beltH = 705;
+  ctx.fillStyle = "#1f2937";
+  ctx.roundRect(beltX, beltY, beltW, beltH, 34);
+  ctx.fill();
+  ctx.fillStyle = "#475569";
+  ctx.roundRect(beltX + 32, beltY + 42, beltW - 64, beltH - 84, 28);
+  ctx.fill();
+  ctx.fillStyle = "#64748b";
+  for (let x = beltX + 90; x < beltX + beltW - 60; x += 110) {
+    for (let y = beltY + 86; y < beltY + beltH - 70; y += 140) {
+      ctx.beginPath();
+      ctx.ellipse(x, y, 34, 90, Math.PI / 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.fillStyle = "rgba(15, 23, 42, 0.45)";
+  for (let x = beltX + 150; x < beltX + beltW - 120; x += 280) {
+    ctx.beginPath();
+    ctx.moveTo(x, beltY + beltH / 2 - 48);
+    ctx.lineTo(x + 105, beltY + beltH / 2);
+    ctx.lineTo(x, beltY + beltH / 2 + 48);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  ctx.fillStyle = "#facc15";
+  ctx.fillRect(rect.x + 1450, rect.y + 540, 54, 650);
+  ctx.fillStyle = "#111827";
+  for (let y = rect.y + 550; y < rect.y + 1175; y += 52) {
+    ctx.beginPath();
+    ctx.moveTo(rect.x + 1450, y + 40);
+    ctx.lineTo(rect.x + 1504, y);
+    ctx.lineTo(rect.x + 1504, y + 22);
+    ctx.lineTo(rect.x + 1450, y + 62);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  ctx.fillStyle = "#0f172a";
+  ctx.roundRect(rect.x + 1480, rect.y + 300, 880, 945, 34);
+  ctx.fill();
+  ctx.fillStyle = "#334155";
+  ctx.fillRect(rect.x + 1510, rect.y + 330, 820, 885);
+  ctx.strokeStyle = "#94a3b8";
+  ctx.lineWidth = 8;
+  for (const y of [515, 670, 825, 980]) {
+    ctx.beginPath();
+    ctx.moveTo(rect.x + 1510, rect.y + y);
+    ctx.lineTo(rect.x + 2330, rect.y + y);
+    ctx.stroke();
+  }
+  for (const x of [1685, 1860, 2035, 2210]) {
+    ctx.beginPath();
+    ctx.moveTo(rect.x + x, rect.y + 330);
+    ctx.lineTo(rect.x + x, rect.y + 1215);
+    ctx.stroke();
+  }
+  ctx.fillStyle = "#e5e7eb";
+  ctx.font =
+    "700 40px system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("FINISHED GOODS", rect.x + 1920, rect.y + 1288);
+
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+  ctx.lineWidth = 4;
+  ctx.setLineDash([14, 18]);
+  for (const zone of [
+    [65, 65, 2270, 215],
+    [145, 1300, 2160, 230],
+  ]) {
+    ctx.roundRect(rect.x + zone[0], rect.y + zone[1], zone[2], zone[3], 26);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = "rgba(15, 23, 42, 0.28)";
+  ctx.font =
+    "800 42px system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif";
+  ctx.fillText("ASSEMBLY LINE", beltX + beltW / 2, beltY + beltH + 55);
+
+  ctx.restore();
+}
+
 export default function RevealCanvas({
   theme,
   images,
@@ -341,6 +497,11 @@ export default function RevealCanvas({
         }
         if (part.prefill === "farm-background") {
           drawFarmBackground(ctx, part.rect);
+          if (animate) await sleep(550);
+          continue;
+        }
+        if (part.prefill === "factory-background") {
+          drawFactoryBackground(ctx, part.rect);
           if (animate) await sleep(550);
           continue;
         }

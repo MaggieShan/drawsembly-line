@@ -16,6 +16,35 @@ import RevealCanvas from "@/components/RevealCanvas";
 
 const PARTY_HOST =
   process.env.NEXT_PUBLIC_PARTYKIT_HOST ?? "localhost:1999";
+type ImageCache = Record<number, Record<number, Record<string, string>>>;
+
+function pruneImagesForView(images: ImageCache, view: ClientView): ImageCache {
+  const next: ImageCache = {};
+
+  view.rounds.forEach((round, roundIndex) => {
+    const roundImages = images[roundIndex];
+    if (!roundImages) return;
+
+    round.groups.forEach((group, groupIndex) => {
+      const groupImages = roundImages[groupIndex];
+      if (!groupImages) return;
+
+      const submittedParts = new Set(group.submittedParts);
+      const nextGroupImages = Object.fromEntries(
+        Object.entries(groupImages).filter(([partId]) =>
+          submittedParts.has(partId)
+        )
+      );
+
+      if (Object.keys(nextGroupImages).length > 0) {
+        next[roundIndex] ??= {};
+        next[roundIndex][groupIndex] = nextGroupImages;
+      }
+    });
+  });
+
+  return next;
+}
 
 export default function GameRoom({ code }: { code: string }) {
   const [name, setName] = useState<string | null>(null);
@@ -79,9 +108,7 @@ export default function GameRoom({ code }: { code: string }) {
 function ConnectedRoom({ code, name }: { code: string; name: string }) {
   const [view, setView] = useState<ClientView | null>(null);
   // roundIndex -> groupIndex -> partId -> dataUrl
-  const [images, setImages] = useState<
-    Record<number, Record<number, Record<string, string>>>
-  >({});
+  const [images, setImages] = useState<ImageCache>({});
   const [clockOffset, setClockOffset] = useState(0);
   const [copied, setCopied] = useState(false);
 
@@ -107,6 +134,7 @@ function ConnectedRoom({ code, name }: { code: string; name: string }) {
         localStorage.setItem(tokenKey, msg.token);
       } else if (msg.type === "sync") {
         setView(msg.view);
+        setImages((prev) => pruneImagesForView(prev, msg.view));
         setClockOffset(msg.view.serverNow - Date.now());
       } else if (msg.type === "part_image") {
         setImages((prev) => ({
@@ -142,7 +170,7 @@ function ConnectedRoom({ code, name }: { code: string; name: string }) {
     isHost && ["assign", "drawing", "reveal_wait", "reveal"].includes(view.phase);
 
   return (
-    <main className="mx-auto max-w-6xl p-4 sm:p-6">
+    <main className="mx-auto max-w-7xl p-4 sm:p-6">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-black">🎨 Drawsembly Line</h1>
         <div className="flex items-center gap-2">
@@ -413,6 +441,12 @@ function DrawingView({
   const theme = group ? getTheme(group.themeId) : null;
   const yourParts = view.yourParts;
   const [activePart, setActivePart] = useState(yourParts[0] ?? "");
+  const [doneNotice, setDoneNotice] = useState<string | null>(null);
+  const [optimisticDoneParts, setOptimisticDoneParts] = useState<string[]>([]);
+  const donePartIds = new Set([
+    ...(group?.doneParts ?? []),
+    ...optimisticDoneParts,
+  ]);
   const localDeadline = view.drawingEndsAt
     ? view.drawingEndsAt - clockOffset
     : null;
@@ -426,6 +460,13 @@ function DrawingView({
     }
   }, [yourParts, activePart]);
 
+  useEffect(() => {
+    setOptimisticDoneParts((prev) => {
+      const next = prev.filter((pid) => yourParts.includes(pid));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [yourParts]);
+
   const onSnapshot = useCallback(
     (partId: string, dataUrl: string) => {
       if (gi == null) return;
@@ -433,6 +474,35 @@ function DrawingView({
     },
     [send, gi]
   );
+
+  function markDone(partId: string) {
+    if (gi == null || !group || !theme) return;
+
+    send({ type: "done", groupIndex: gi, partId });
+    setOptimisticDoneParts((prev) =>
+      prev.includes(partId) ? prev : [...prev, partId]
+    );
+
+    const nextPartId = yourParts.find(
+      (pid) => pid !== partId && !donePartIds.has(pid)
+    );
+    const completedPart = theme.parts.find((p) => p.id === partId);
+
+    if (nextPartId) {
+      const nextPart = theme.parts.find((p) => p.id === nextPartId);
+      setDoneNotice(
+        `${completedPart?.label ?? "That part"} is done. Next up: ${
+          nextPart?.label ?? nextPartId
+        }.`
+      );
+      setActivePart(nextPartId);
+      return;
+    }
+
+    setDoneNotice(
+      "All of your parts are marked done. You can keep polishing until time is up."
+    );
+  }
 
   if (gi == null || !group || !theme || yourParts.length === 0) {
     return (
@@ -465,11 +535,20 @@ function DrawingView({
         />
       )}
 
+      {doneNotice && (
+        <div
+          role="status"
+          className="rounded-xl border border-violet-300/30 bg-violet-500/15 px-4 py-2 text-sm font-medium text-violet-100"
+        >
+          {doneNotice}
+        </div>
+      )}
+
       {yourParts.length > 1 && (
         <div className="flex flex-wrap gap-2">
           {yourParts.map((pid) => {
             const part = theme.parts.find((p) => p.id === pid);
-            const done = group.doneParts.includes(pid);
+            const done = donePartIds.has(pid);
             return (
               <button
                 key={pid}
@@ -490,7 +569,7 @@ function DrawingView({
       {yourParts.map((pid) => {
         const part = theme.parts.find((p) => p.id === pid);
         if (!part) return null;
-        const done = group.doneParts.includes(pid);
+        const done = donePartIds.has(pid);
         return (
           <div
             key={pid}
@@ -508,7 +587,7 @@ function DrawingView({
                 <button
                   className="btn-primary"
                   disabled={done}
-                  onClick={() => send({ type: "done", groupIndex: gi, partId: pid })}
+                  onClick={() => markDone(pid)}
                 >
                   {done ? "✅ Done" : "I'm done"}
                 </button>

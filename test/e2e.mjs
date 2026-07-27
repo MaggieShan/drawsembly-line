@@ -23,7 +23,10 @@ class Client {
     this.ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.type === "identity") this.token = msg.token;
-      if (msg.type === "sync") this.view = msg.view;
+      if (msg.type === "sync") {
+        this.view = msg.view;
+        this.pruneImagesForView(msg.view);
+      }
       if (msg.type === "part_image") {
         this.images[msg.roundIndex] ??= {};
         this.images[msg.roundIndex][msg.groupIndex] ??= {};
@@ -44,6 +47,28 @@ class Client {
       (n, g) => n + Object.keys(g).length,
       0
     );
+  }
+  pruneImagesForView(view) {
+    const next = {};
+    for (const [roundIndex, round] of view.rounds.entries()) {
+      const roundImages = this.images[roundIndex];
+      if (!roundImages) continue;
+      for (const [groupIndex, group] of round.groups.entries()) {
+        const groupImages = roundImages[groupIndex];
+        if (!groupImages) continue;
+        const submittedParts = new Set(group.submittedParts);
+        const nextGroupImages = Object.fromEntries(
+          Object.entries(groupImages).filter(([partId]) =>
+            submittedParts.has(partId)
+          )
+        );
+        if (Object.keys(nextGroupImages).length > 0) {
+          next[roundIndex] ??= {};
+          next[roundIndex][groupIndex] = nextGroupImages;
+        }
+      }
+    }
+    this.images = next;
   }
   async until(pred, label, timeout = 5000) {
     const start = Date.now();
@@ -173,6 +198,30 @@ await host.until(
   "theme set per group (group 2 house, group 1 robot)"
 );
 
+// Repeatable/open-ended presets balance assignments across their categories.
+host.send({ type: "set_theme", groupIndex: 1, themeId: "factory" });
+await host.until(
+  (v) =>
+    v.rounds[0].groups[1].themeId === "factory" &&
+    Object.keys(v.rounds[0].groups[1].assignments).length ===
+      v.rounds[0].groups[1].members.length,
+  "theme set per group (group 2 factory)"
+);
+const factoryAssignments = host.view.rounds[0].groups[1].assignments;
+const factoryBucketCounts = [
+  "factory-product",
+  "factory-part",
+  "factory-worker",
+].map((prefix) =>
+  Object.keys(factoryAssignments).filter((partId) =>
+    partId.startsWith(`${prefix}-`)
+  ).length
+);
+check(
+  Math.max(...factoryBucketCounts) - Math.min(...factoryBucketCounts) <= 1,
+  "factory preset balances product, part, and worker prompts"
+);
+
 // Each group can choose whether to fill every part, assigning extras round-robin.
 host.send({ type: "set_group_assignment_mode", groupIndex: 0, mode: "fill_all" });
 await host.until(
@@ -237,7 +286,13 @@ check(p2.view.rounds[0].drawSeconds === 45, "timer update syncs to players");
 
 async function playRound(
   expectTheme,
-  { useTimerEnd = false, expectedSeconds = 60, liveUpdateSeconds = null } = {}
+  {
+    useTimerEnd = false,
+    expectedSeconds = 60,
+    liveUpdateSeconds = null,
+    sendSnapshotsBeforeEnd = true,
+    sendSnapshotsAfterRoundEnd = false,
+  } = {}
 ) {
   const expectedThemes = Array.isArray(expectTheme) ? expectTheme : [expectTheme];
   let timerSeconds = expectedSeconds;
@@ -278,22 +333,27 @@ async function playRound(
     );
   }
 
-  // Everyone submits snapshots for their parts
-  for (const c of clients) {
-    for (const partId of c.view.yourParts) {
-      c.send({
-        type: "snapshot",
-        groupIndex: c.view.yourGroupIndex,
-        partId,
-        dataUrl: PNG,
-      });
+  async function submitAllSnapshots(label) {
+    for (const c of clients) {
+      for (const partId of c.view.yourParts) {
+        c.send({
+          type: "snapshot",
+          groupIndex: c.view.yourGroupIndex,
+          partId,
+          dataUrl: PNG,
+        });
+      }
     }
+    await host.until(
+      (v) =>
+        v.rounds[v.roundIndex].groups.every((g) => g.submittedParts.length > 0),
+      label
+    );
   }
-  await host.until(
-    (v) =>
-      v.rounds[v.roundIndex].groups.every((g) => g.submittedParts.length > 0),
-    "snapshots registered in every group"
-  );
+
+  if (sendSnapshotsBeforeEnd) {
+    await submitAllSnapshots("snapshots registered in every group");
+  }
 
   if (useTimerEnd) {
     host.send({ type: "end_drawing" }); // host ends early instead of waiting for the timer
@@ -305,6 +365,14 @@ async function playRound(
     }
   }
   await host.until((v) => v.phase === "reveal_wait", "phase -> reveal_wait", 8000);
+
+  if (sendSnapshotsAfterRoundEnd) {
+    await submitAllSnapshots("final snapshots registered after round end");
+  }
+  await host.until(
+    () => host.imageCount(host.view.roundIndex) > 0,
+    "host got preview images"
+  );
   check(host.imageCount(host.view.roundIndex) > 0, "host got preview images");
   check(
     p2.imageCount(p2.view.roundIndex) === 0,
@@ -343,6 +411,26 @@ await host.until((v) => v.phase === "assign" && v.roundIndex === 1, "round 2 ass
 
 console.log("Round 2:");
 check(host.view.rounds[1].drawSeconds === 60, "round 2 timer starts at default");
+const r1 = host.view.rounds[1];
+check(r1.groups.length === 3, "round 2 creates one group per default preset");
+check(
+  r1.groups
+    .map((g) => g.themeId)
+    .sort()
+    .join(",") === "aquarium,farm,zoo",
+  "round 2 uses farm/barn, aquarium, and zoo presets"
+);
+const r1MemberCounts = r1.groups.map((g) => g.members.length);
+check(
+  Math.max(...r1MemberCounts) - Math.min(...r1MemberCounts) <= 1,
+  "round 2 players are evenly distributed across presets"
+);
+check(
+  r1.groups.every(
+    (g) => Object.keys(g.assignments).length === g.members.length
+  ),
+  "round 2 groups have one assigned part per member"
+);
 host.send({ type: "set_round_timer", roundIndex: 1, seconds: 90 });
 await host.until(
   (v) => v.rounds[1].drawSeconds === 90,
@@ -352,16 +440,18 @@ await playRound(["farm", "aquarium", "zoo"], {
   useTimerEnd: true,
   expectedSeconds: 90,
   liveUpdateSeconds: 120,
+  sendSnapshotsBeforeEnd: false,
+  sendSnapshotsAfterRoundEnd: true,
 });
 await host.until((v) => v.phase === "assign" && v.roundIndex === 2, "round 3 assign");
 check(
-  host.view.rounds[2].groups.length === 2,
-  "9 players on spiderman (7 parts) -> 2 groups"
+  host.view.rounds[2].groups.length === 1,
+  "9 players on factory (70 slots) -> 1 group"
 );
 check(host.view.rounds[2].drawSeconds === 60, "round 3 timer starts at default");
 
 console.log("Round 3:");
-await playRound("spiderman");
+await playRound("factory");
 await host.until((v) => v.phase === "gallery", "phase -> gallery after 3 rounds");
 check(
   host.view.rounds.every((r) => r.revealed),
@@ -379,6 +469,14 @@ check(Object.keys(late.images).length === 3, "late joiner received all images");
 // Play again
 host.send({ type: "play_again" });
 await host.until((v) => v.phase === "lobby", "play_again -> lobby");
+await Promise.all(
+  [...clients, late].map((c) =>
+    c.until(
+      (v) => v.phase === "lobby" && Object.keys(c.images).length === 0,
+      "play_again clears cached images"
+    )
+  )
+);
 
 for (const c of [...clients, late]) c.ws.close();
 

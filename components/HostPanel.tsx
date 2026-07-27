@@ -33,7 +33,7 @@ export default function HostPanel({
   const ungrouped = view.players.filter((p) => !grouped.has(p.id));
 
   return (
-    <aside className="card w-full space-y-4 lg:w-96">
+    <aside className="card w-full space-y-5 lg:w-[32rem] xl:w-[38rem]">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold">👑 Host controls</h2>
         <span className="rounded-full bg-violet-500/20 px-2.5 py-0.5 text-xs font-semibold text-violet-300">
@@ -43,71 +43,80 @@ export default function HostPanel({
 
       {view.phase === "assign" && (
         <>
-          <RoundTimerControl view={view} send={send} />
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
-            <button
-              className="btn-secondary w-full text-sm"
-              onClick={() => send({ type: "shuffle_groups" })}
-            >
-              🔀 Re-shuffle groups
-            </button>
-            <button
-              className="btn-secondary w-full text-sm"
-              onClick={() => send({ type: "add_group" })}
-            >
-              ➕ Add empty group
-            </button>
-          </div>
+          <section className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div>
+              <h3 className="font-semibold">Round setup</h3>
+              <p className="text-sm text-white/50">
+                Set the timer and make broad group changes before drawing
+                starts.
+              </p>
+            </div>
+            <RoundTimerControl view={view} send={send} />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <button
+                className="btn-secondary w-full py-3 text-sm"
+                onClick={() => send({ type: "shuffle_groups" })}
+              >
+                🔀 Re-shuffle groups
+              </button>
+              <button
+                className="btn-secondary w-full py-3 text-sm"
+                onClick={() => send({ type: "add_group" })}
+              >
+                ➕ Add empty group
+              </button>
+            </div>
+          </section>
 
-          <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
-            {round.groups.map((group, gi) => (
-              <GroupEditor
-                key={gi}
-                view={view}
-                send={send}
-                group={group}
-                groupIndex={gi}
-                groupCount={round.groups.length}
-              />
-            ))}
-
-            {ungrouped.length > 0 && (
-              <div className="space-y-1.5 rounded-xl border border-amber-400/30 bg-amber-400/5 p-3">
-                <p className="text-sm font-medium text-amber-300">
-                  Not in a group yet
+          <div className="max-h-[60vh] space-y-5 overflow-y-auto pr-1">
+            <section className="space-y-3">
+              <div>
+                <h3 className="font-semibold">Group maintenance</h3>
+                <p className="text-sm text-white/50">
+                  Pick each group&apos;s preset and move players between groups.
                 </p>
-                {ungrouped.map((p) => (
-                  <div key={p.id} className="flex items-center gap-2 text-sm">
-                    <span className="w-24 shrink-0 truncate text-white/80">
-                      {p.name}
-                    </span>
-                    <select
-                      className="w-full rounded-lg border border-white/15 bg-black/40 px-2 py-1"
-                      value=""
-                      onChange={(e) => {
-                        if (e.target.value === "") return;
-                        send({
-                          type: "move_player",
-                          playerId: p.id,
-                          groupIndex: Number(e.target.value),
-                        });
-                      }}
-                    >
-                      <option value="">Add to group…</option>
-                      {round.groups.map((_, gi) => (
-                        <option key={gi} value={gi}>
-                          Group {gi + 1}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ))}
               </div>
-            )}
+              {round.groups.map((group, gi) => (
+                <GroupMaintenanceCard
+                  key={gi}
+                  view={view}
+                  send={send}
+                  group={group}
+                  groupIndex={gi}
+                  groupCount={round.groups.length}
+                />
+              ))}
+              {ungrouped.length > 0 && (
+                <UngroupedPlayersCard
+                  players={ungrouped}
+                  groupCount={round.groups.length}
+                  send={send}
+                />
+              )}
+            </section>
+
+            <section className="space-y-3">
+              <div>
+                <h3 className="font-semibold">Part ↔ player associations</h3>
+                <p className="text-sm text-white/50">
+                  Tune the drawing-mode assignment behavior and choose who owns
+                  each part inside each group.
+                </p>
+              </div>
+              {round.groups.map((group, gi) => (
+                <PartAssociationCard
+                  key={gi}
+                  view={view}
+                  send={send}
+                  group={group}
+                  groupIndex={gi}
+                />
+              ))}
+            </section>
           </div>
 
           <button
-            className="btn-primary w-full"
+            className="btn-primary w-full py-3 text-base"
             onClick={() => send({ type: "start_round" })}
           >
             🖌️ Start drawing ({formatTimer(round.drawSeconds)})
@@ -123,7 +132,10 @@ export default function HostPanel({
               const theme = getTheme(group.themeId);
               const assignments = group.assignments ?? {};
               return (
-                <div key={gi} className="space-y-1.5">
+                <div
+                  key={gi}
+                  className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4"
+                >
                   <p className="text-sm font-semibold text-white/80">
                     Group {gi + 1} · {theme.emoji} {theme.name}
                   </p>
@@ -136,7 +148,7 @@ export default function HostPanel({
                       return (
                         <div
                           key={part.id}
-                          className="flex items-center justify-between text-sm"
+                          className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 p-3 text-sm"
                         >
                           <span className="truncate text-white/70">
                             {part.label} ·{" "}
@@ -161,7 +173,7 @@ export default function HostPanel({
             })}
           </div>
           <button
-            className="btn-danger w-full"
+            className="btn-danger w-full py-3 text-base"
             onClick={() => send({ type: "end_drawing" })}
           >
             ⏹️ End drawing early
@@ -231,12 +243,12 @@ function RoundTimerControl({
   };
 
   return (
-    <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
+    <div className="space-y-3 rounded-xl border border-white/10 bg-black/20 p-4">
       <label className="block text-sm">
         <span className="mb-1 block text-white/60">Drawing timer</span>
         <div className="flex items-center gap-2">
           <input
-            className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 tabular-nums"
+            className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2.5 tabular-nums"
             min={MIN_DRAW_SECONDS}
             max={MAX_DRAW_SECONDS}
             step={5}
@@ -251,12 +263,12 @@ function RoundTimerControl({
           <span className="text-sm text-white/50">seconds</span>
         </div>
       </label>
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap gap-2">
         {TIMER_PRESETS.map((seconds) => (
           <button
             key={seconds}
             type="button"
-            className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+            className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
               round.drawSeconds === seconds
                 ? "bg-violet-500 text-white"
                 : "bg-white/10 text-white/70 hover:bg-white/20"
@@ -280,7 +292,7 @@ function RoundTimerControl({
   );
 }
 
-function GroupEditor({
+function GroupMaintenanceCard({
   view,
   send,
   group,
@@ -293,32 +305,30 @@ function GroupEditor({
   groupIndex: number;
   groupCount: number;
 }) {
-  const theme = getTheme(group.themeId);
-  const assignments = group.assignments ?? {};
   const member = (id: string) => view.players.find((p) => p.id === id);
 
   return (
-    <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
-      <p className="font-semibold">
-        <span>
-          Group {groupIndex + 1}{" "}
-          <span className="text-white/50">
-            · {group.members.length} player
+    <div className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="font-semibold">Group {groupIndex + 1}</p>
+          <p className="text-sm text-white/50">
+            {group.members.length} player
             {group.members.length === 1 ? "" : "s"}
-          </span>
-        </span>
+          </p>
+        </div>
         <button
-          className="float-right rounded-lg border border-rose-400/30 px-2 py-0.5 text-xs font-semibold text-rose-200 hover:bg-rose-500/10"
+          className="rounded-xl border border-rose-400/30 px-3 py-1.5 text-xs font-semibold text-rose-200 hover:bg-rose-500/10"
           onClick={() => send({ type: "remove_group", groupIndex })}
         >
-          Remove
+          Remove group
         </button>
-      </p>
+      </div>
 
       <label className="block text-sm">
         <span className="mb-1 block text-white/60">Preset</span>
         <select
-          className="w-full rounded-lg border border-white/15 bg-black/40 px-2 py-1.5"
+          className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2.5"
           value={group.themeId}
           onChange={(e) =>
             send({ type: "set_theme", groupIndex, themeId: e.target.value })
@@ -332,96 +342,195 @@ function GroupEditor({
         </select>
       </label>
 
-      <label className="block text-sm">
-        <span className="mb-1 block text-white/60">Part shuffling</span>
-        <select
-          className="w-full rounded-lg border border-white/15 bg-black/40 px-2 py-1.5"
-          value={group.assignmentMode}
-          onChange={(e) =>
-            send({
-              type: "set_group_assignment_mode",
-              groupIndex,
-              mode: e.target.value === "fill_all" ? "fill_all" : "one_each",
-            })
-          }
-        >
-          <option value="one_each">One each, extras optional</option>
-          <option value="fill_all">Fill every part</option>
-        </select>
-      </label>
-
-      <div className="space-y-1">
-        <p className="text-xs font-medium uppercase tracking-wide text-white/40">
-          Parts
-        </p>
-        <p className="text-xs text-white/40">
-          {group.assignmentMode === "fill_all"
-            ? "Every drawable part is assigned; some players may get multiple parts."
-            : "Extra parts can be left out if nobody claims them."}
-        </p>
-        {theme.parts
-          .filter((part) => !part.prefill)
-          .map((part) => (
-            <div key={part.id} className="flex items-center gap-2 text-sm">
-              <span className="w-24 shrink-0 truncate text-white/80">
-                {part.label}
-              </span>
-              <select
-                className="w-full rounded-lg border border-white/15 bg-black/40 px-2 py-1"
-                value={assignments[part.id] ?? ""}
-                onChange={(e) =>
-                  send({
-                    type: "reassign",
-                    groupIndex,
-                    partId: part.id,
-                    playerId: e.target.value || null,
-                  })
-                }
-              >
-                <option value="">
-                  Leave out
-                </option>
-                {group.members.map((id) => {
-                  const p = member(id);
-                  return (
-                    <option key={id} value={id}>
-                      {p?.name ?? id}
-                      {p && !p.connected ? " (offline)" : ""}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-          ))}
-      </div>
-
-      <div className="space-y-1">
+      <div className="space-y-2">
         <p className="text-xs font-medium uppercase tracking-wide text-white/40">
           Members
         </p>
-        {group.members.map((id) => (
-          <div key={id} className="flex items-center gap-2 text-sm">
-            <span className="w-24 shrink-0 truncate text-white/80">
-              {member(id)?.name ?? id}
+        {group.members.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-white/10 bg-black/20 p-3 text-sm text-white/40">
+            No players in this group yet.
+          </p>
+        ) : (
+          group.members.map((id) => {
+            const p = member(id);
+            return (
+              <div
+                key={id}
+                className="flex flex-col gap-2 rounded-xl border border-white/10 bg-black/20 p-3 text-sm sm:flex-row sm:items-center"
+              >
+                <span className="min-w-0 flex-1 truncate text-white/80">
+                  {p?.name ?? id}
+                  {p && !p.connected && (
+                    <span className="text-white/40"> (offline)</span>
+                  )}
+                </span>
+                <select
+                  className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 sm:w-44"
+                  value={groupIndex}
+                  onChange={(e) =>
+                    send({
+                      type: "move_player",
+                      playerId: id,
+                      groupIndex: Number(e.target.value),
+                    })
+                  }
+                >
+                  {Array.from({ length: groupCount }, (_, g) => (
+                    <option key={g} value={g}>
+                      Group {g + 1}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+function UngroupedPlayersCard({
+  players,
+  groupCount,
+  send,
+}: {
+  players: ClientView["players"];
+  groupCount: number;
+  send: (msg: ClientMessage) => void;
+}) {
+  return (
+    <div className="space-y-3 rounded-2xl border border-amber-400/30 bg-amber-400/5 p-4">
+      <div>
+        <p className="text-sm font-semibold text-amber-300">
+          Not in a group yet
+        </p>
+        <p className="text-xs text-white/45">
+          Add these players to a group before starting if they should draw.
+        </p>
+      </div>
+      {players.map((p) => (
+        <div
+          key={p.id}
+          className="flex flex-col gap-2 rounded-xl border border-amber-300/10 bg-black/20 p-3 text-sm sm:flex-row sm:items-center"
+        >
+          <span className="min-w-0 flex-1 truncate text-white/80">
+            {p.name}
+          </span>
+          <select
+            className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 sm:w-44"
+            value=""
+            onChange={(e) => {
+              if (e.target.value === "") return;
+              send({
+                type: "move_player",
+                playerId: p.id,
+                groupIndex: Number(e.target.value),
+              });
+            }}
+          >
+            <option value="">Add to group…</option>
+            {Array.from({ length: groupCount }, (_, gi) => (
+              <option key={gi} value={gi}>
+                Group {gi + 1}
+              </option>
+            ))}
+          </select>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PartAssociationCard({
+  view,
+  send,
+  group,
+  groupIndex,
+}: {
+  view: ClientView;
+  send: (msg: ClientMessage) => void;
+  group: GroupView;
+  groupIndex: number;
+}) {
+  const theme = getTheme(group.themeId);
+  const assignments = group.assignments ?? {};
+  const member = (id: string) => view.players.find((p) => p.id === id);
+  const drawableParts = theme.parts.filter((part) => !part.prefill);
+
+  return (
+    <div className="space-y-4 rounded-2xl border border-violet-300/20 bg-violet-400/5 p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="font-semibold">
+            Group {groupIndex + 1} · {theme.emoji} {theme.name}
+          </p>
+          <p className="text-sm text-white/50">
+            {drawableParts.length} drawable part
+            {drawableParts.length === 1 ? "" : "s"}
+          </p>
+        </div>
+        <label className="block text-sm sm:w-56">
+          <span className="mb-1 block text-white/60">Part shuffling</span>
+          <select
+            className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2.5"
+            value={group.assignmentMode}
+            onChange={(e) =>
+              send({
+                type: "set_group_assignment_mode",
+                groupIndex,
+                mode: e.target.value === "fill_all" ? "fill_all" : "one_each",
+              })
+            }
+          >
+            <option value="one_each">One each, extras optional</option>
+            <option value="fill_all">Fill every part</option>
+          </select>
+        </label>
+      </div>
+
+      <p className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-white/45">
+        {group.assignmentMode === "fill_all"
+          ? "Every drawable part is assigned; some players may get multiple parts."
+          : "Extra parts can be left out if nobody claims them."}
+      </p>
+
+      <div className="space-y-2">
+        {drawableParts.map((part) => (
+          <label
+            key={part.id}
+            className="flex flex-col gap-2 rounded-xl border border-white/10 bg-black/20 p-3 text-sm sm:flex-row sm:items-center"
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block font-medium text-white/85">
+                {part.label}
+              </span>
+              <span className="block text-xs text-white/40">{part.hint}</span>
             </span>
             <select
-              className="w-full rounded-lg border border-white/15 bg-black/40 px-2 py-1"
-              value={groupIndex}
+              className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 sm:w-52"
+              value={assignments[part.id] ?? ""}
               onChange={(e) =>
                 send({
-                  type: "move_player",
-                  playerId: id,
-                  groupIndex: Number(e.target.value),
+                  type: "reassign",
+                  groupIndex,
+                  partId: part.id,
+                  playerId: e.target.value || null,
                 })
               }
             >
-              {Array.from({ length: groupCount }, (_, g) => (
-                <option key={g} value={g}>
-                  Group {g + 1}
-                </option>
-              ))}
+              <option value="">Leave out</option>
+              {group.members.map((id) => {
+                const p = member(id);
+                return (
+                  <option key={id} value={id}>
+                    {p?.name ?? id}
+                    {p && !p.connected ? " (offline)" : ""}
+                  </option>
+                );
+              })}
             </select>
-          </div>
+          </label>
         ))}
       </div>
     </div>
