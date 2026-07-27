@@ -18,6 +18,9 @@ import {
 
 type Player = {
   id: string;
+  /** Secret session token, minted server-side. Proves identity on reconnect;
+   *  never exposed in ClientView, so it is never broadcast to other players. */
+  token: string;
   name: string;
   color: string;
   connected: boolean;
@@ -246,19 +249,28 @@ export default class GameServer implements Party.Server {
 
     if (msg.type === "join") {
       const name = String(msg.name ?? "").trim().slice(0, 24) || "Anonymous";
-      let player = this.player(msg.playerId);
+      // Identity is proven by a server-issued secret token, never by a
+      // client-supplied id (public ids are spoofable). Reconnect only when the
+      // presented token matches a known player.
+      let player =
+        typeof msg.token === "string" && msg.token.length > 0
+          ? this.players.find((p) => p.token === msg.token)
+          : undefined;
       if (player) {
         player.connected = true;
         player.name = name;
       } else {
         player = {
-          id: msg.playerId,
+          id: crypto.randomUUID(),
+          token: crypto.randomUUID(),
           name,
           color: PLAYER_COLORS[this.players.length % PLAYER_COLORS.length],
           connected: true,
         };
         this.players.push(player);
         if (!this.hostId) this.hostId = player.id;
+        // Deliver the secret token to this connection only; never broadcast it.
+        this.send(conn, { type: "identity", token: player.token });
         // Late joiner during assign: drop them into the smallest group.
         const round = this.currentRound;
         if (this.phase === "assign" && round && round.groups.length > 0) {

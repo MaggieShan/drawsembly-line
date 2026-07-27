@@ -14,14 +14,15 @@ function check(cond, label) {
 }
 
 class Client {
-  constructor(name, playerId) {
+  constructor(name) {
     this.name = name;
-    this.playerId = playerId;
+    this.token = null; // server-issued session token (from "identity")
     this.view = null;
     this.images = {}; // roundIndex -> groupIndex -> partId -> dataUrl
     this.ws = new WebSocket(`ws://${HOST}/parties/main/${ROOM}`);
     this.ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
+      if (msg.type === "identity") this.token = msg.token;
       if (msg.type === "sync") this.view = msg.view;
       if (msg.type === "part_image") {
         this.images[msg.roundIndex] ??= {};
@@ -36,7 +37,7 @@ class Client {
   }
   async join() {
     await this.opened;
-    this.send({ type: "join", playerId: this.playerId, name: this.name });
+    this.send({ type: "join", token: this.token ?? undefined, name: this.name });
   }
   imageCount(roundIndex) {
     return Object.values(this.images[roundIndex] ?? {}).reduce(
@@ -61,10 +62,10 @@ class Client {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // 9 players: robot (7 assignable parts) -> 2 groups.
-const host = new Client("Hosty", "pid-host");
+const host = new Client("Hosty");
 const others = Array.from(
   { length: 8 },
-  (_, i) => new Client(`Player${i + 2}`, `pid-p${i + 2}`)
+  (_, i) => new Client(`Player${i + 2}`)
 );
 const clients = [host, ...others];
 const p2 = others[0];
@@ -266,7 +267,7 @@ check(
 check(Object.keys(p2.images).length === 3, "p2 has images for all 3 rounds");
 
 // Late joiner sees the gallery images
-const late = new Client("Latey", "pid-late");
+const late = new Client("Latey");
 await late.join();
 await late.until((v) => v.phase === "gallery", "late joiner lands in gallery");
 await sleep(400);

@@ -53,7 +53,9 @@ export type ClientView = {
 
 // ---- client -> server ----
 export type ClientMessage =
-  | { type: "join"; playerId: string; name: string }
+  // `token` is the server-issued session secret from a previous join, used to
+  // reconnect as the same player. Omitted on a first join.
+  | { type: "join"; token?: string; name: string }
   | { type: "start_game" }
   | { type: "set_theme"; groupIndex: number; themeId: string }
   | { type: "reassign"; groupIndex: number; partId: string; playerId: string }
@@ -70,6 +72,10 @@ export type ClientMessage =
 
 // ---- server -> client ----
 export type ServerMessage =
+  // Sent once, to the joining connection only, right after a new player is
+  // created. The client persists `token` and presents it to reconnect.
+  // Never included in ClientView, so it is never broadcast to other players.
+  | { type: "identity"; token: string }
   | { type: "sync"; view: ClientView }
   | {
       type: "part_image";

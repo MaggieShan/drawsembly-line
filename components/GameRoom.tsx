@@ -17,22 +17,14 @@ const PARTY_HOST =
   process.env.NEXT_PUBLIC_PARTYKIT_HOST ?? "localhost:1999";
 
 export default function GameRoom({ code }: { code: string }) {
-  const [identity, setIdentity] = useState<{
-    playerId: string;
-    name: string;
-  } | null>(null);
+  const [name, setName] = useState<string | null>(null);
   const [nameInput, setNameInput] = useState("");
   const [needName, setNeedName] = useState(false);
 
   useEffect(() => {
-    let pid = localStorage.getItem("dt:pid");
-    if (!pid) {
-      pid = crypto.randomUUID();
-      localStorage.setItem("dt:pid", pid);
-    }
-    const name = localStorage.getItem("dt:name");
-    if (name) {
-      setIdentity({ playerId: pid, name });
+    const stored = localStorage.getItem("dt:name");
+    if (stored) {
+      setName(stored);
     } else {
       setNeedName(true);
     }
@@ -52,10 +44,7 @@ export default function GameRoom({ code }: { code: string }) {
           onKeyDown={(e) => {
             if (e.key === "Enter" && nameInput.trim()) {
               localStorage.setItem("dt:name", nameInput.trim());
-              setIdentity({
-                playerId: localStorage.getItem("dt:pid")!,
-                name: nameInput.trim(),
-              });
+              setName(nameInput.trim());
               setNeedName(false);
             }
           }}
@@ -65,10 +54,7 @@ export default function GameRoom({ code }: { code: string }) {
           disabled={!nameInput.trim()}
           onClick={() => {
             localStorage.setItem("dt:name", nameInput.trim());
-            setIdentity({
-              playerId: localStorage.getItem("dt:pid")!,
-              name: nameInput.trim(),
-            });
+            setName(nameInput.trim());
             setNeedName(false);
           }}
         >
@@ -78,7 +64,7 @@ export default function GameRoom({ code }: { code: string }) {
     );
   }
 
-  if (!identity) {
+  if (!name) {
     return (
       <main className="flex min-h-screen items-center justify-center text-white/50">
         Connecting…
@@ -86,16 +72,10 @@ export default function GameRoom({ code }: { code: string }) {
     );
   }
 
-  return <ConnectedRoom code={code} identity={identity} />;
+  return <ConnectedRoom code={code} name={name} />;
 }
 
-function ConnectedRoom({
-  code,
-  identity,
-}: {
-  code: string;
-  identity: { playerId: string; name: string };
-}) {
+function ConnectedRoom({ code, name }: { code: string; name: string }) {
   const [view, setView] = useState<ClientView | null>(null);
   // roundIndex -> groupIndex -> partId -> dataUrl
   const [images, setImages] = useState<
@@ -104,6 +84,9 @@ function ConnectedRoom({
   const [clockOffset, setClockOffset] = useState(0);
   const [copied, setCopied] = useState(false);
 
+  // Session tokens are per room (each room mints its own identities).
+  const tokenKey = `dt:token:${code.toLowerCase()}`;
+
   const socket = usePartySocket({
     host: PARTY_HOST,
     room: code.toLowerCase(),
@@ -111,14 +94,17 @@ function ConnectedRoom({
       socket.send(
         JSON.stringify({
           type: "join",
-          playerId: identity.playerId,
-          name: identity.name,
+          token: localStorage.getItem(tokenKey) ?? undefined,
+          name,
         } satisfies ClientMessage)
       );
     },
     onMessage(evt) {
       const msg: ServerMessage = JSON.parse(evt.data as string);
-      if (msg.type === "sync") {
+      if (msg.type === "identity") {
+        // Server-issued secret proving who we are; kept for reconnects.
+        localStorage.setItem(tokenKey, msg.token);
+      } else if (msg.type === "sync") {
         setView(msg.view);
         setClockOffset(msg.view.serverNow - Date.now());
       } else if (msg.type === "part_image") {
