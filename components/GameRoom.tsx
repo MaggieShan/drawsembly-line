@@ -154,7 +154,7 @@ function ConnectedRoom({
   return (
     <main className="mx-auto max-w-6xl p-4 sm:p-6">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-black">🎨 Doodle Together</h1>
+        <h1 className="text-2xl font-black">🎨 Drawsembly Line</h1>
         <div className="flex items-center gap-2">
           {round && (
             <span className="rounded-full bg-white/10 px-3 py-1 text-sm">

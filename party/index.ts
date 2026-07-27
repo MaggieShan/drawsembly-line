@@ -147,7 +147,8 @@ export default class GameServer implements Party.Server {
       .sort((a, b) => b.p.satOutCount - a.p.satOutCount || a.r - b.r)
       .map((x) => x.p);
     round.assignments = {};
-    theme.parts.forEach((part, i) => {
+    const assignable = theme.parts.filter((p) => !p.prefill);
+    assignable.forEach((part, i) => {
       const player = order[i % order.length];
       round.assignments[part.id] = player.id;
     });
@@ -305,7 +306,8 @@ export default class GameServer implements Party.Server {
         if (!round || this.phase !== "assign") return;
         if (!this.player(msg.playerId)) return;
         const theme = getTheme(round.themeId);
-        if (!theme.parts.some((p) => p.id === msg.partId)) return;
+        const part = theme.parts.find((p) => p.id === msg.partId);
+        if (!part || part.prefill) return;
         round.assignments[msg.partId] = msg.playerId;
         this.broadcastSync();
         return;

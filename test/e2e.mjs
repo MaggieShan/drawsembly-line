@@ -72,8 +72,12 @@ check(host.view.rounds.length === 3, "3 rounds configured");
 check(host.view.rounds[0].themeId === "robot", "round 1 theme robot");
 const assignments = host.view.rounds[0].assignments;
 check(
-  assignments && Object.keys(assignments).length === 8,
-  "all 8 robot parts assigned"
+  assignments && Object.keys(assignments).length === 7,
+  "all 7 assignable robot parts assigned (head is prefilled)"
+);
+check(
+  assignments && assignments["head"] === undefined,
+  "prefilled robot head is not assigned to anyone"
 );
 const assignedPlayers = new Set(Object.values(assignments));
 check(assignedPlayers.size === 2, "parts distributed across both players");
@@ -163,11 +167,11 @@ await playRound("robot");
 await host.until((v) => v.phase === "assign" && v.roundIndex === 1, "round 2 assign");
 
 console.log("Round 2:");
-await playRound("zach", { useTimerEnd: true });
+await playRound("burger", { useTimerEnd: true });
 await host.until((v) => v.phase === "assign" && v.roundIndex === 2, "round 3 assign");
 
 console.log("Round 3:");
-await playRound("office");
+await playRound("spiderman");
 await host.until((v) => v.phase === "gallery", "phase -> gallery after 3 rounds");
 check(
   host.view.rounds.every((r) => r.revealed),

@@ -49,7 +49,9 @@ export default function HostPanel({
             <p className="text-sm font-medium text-white/70">
               Who draws what (auto-assigned — adjust freely)
             </p>
-            {theme.parts.map((part) => (
+            {theme.parts
+              .filter((part) => !part.prefill)
+              .map((part) => (
               <div key={part.id} className="flex items-center gap-2 text-sm">
                 <span className="w-28 shrink-0 truncate text-white/80">
                   {part.label}
@@ -89,7 +91,9 @@ export default function HostPanel({
         <>
           <div className="space-y-1.5">
             <p className="text-sm font-medium text-white/70">Live progress</p>
-            {theme.parts.map((part) => {
+            {theme.parts
+              .filter((part) => !part.prefill)
+              .map((part) => {
               const submitted = round.submittedParts.includes(part.id);
               const done = round.doneParts.includes(part.id);
               return (

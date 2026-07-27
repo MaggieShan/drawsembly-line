@@ -38,6 +38,14 @@ export default function RevealCanvas({
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       for (const part of theme.parts) {
+        if (part.prefill === "square") {
+          // Pre-rendered default square (nobody draws this part).
+          ctx.strokeStyle = "#111827";
+          ctx.lineWidth = 8;
+          ctx.strokeRect(part.rect.x, part.rect.y, part.rect.w, part.rect.h);
+          if (animate) await sleep(550);
+          continue;
+        }
         const url = images[part.id];
         if (!url) continue;
         try {

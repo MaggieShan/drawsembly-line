@@ -1,11 +1,11 @@
-# 🎨 Doodle Together
+# 🎨 Drawsembly Line
 
 A multiplayer drawing party game (scribbl.io-style) for the weekly meeting: every player draws **one piece** of a painting — and at the end of each round, all the pieces are combined into one glorious collective artwork.
 
 ## How it works
 
 - Anyone can join a room via a link/room code. The first person in becomes the **host**.
-- **3 rounds**, each with a theme. Presets: 🤖 Robot, 🧑‍💻 Zach Lloyd, 🏢 Inside the office, 🏠 House (host can pick the theme per round).
+- **3 rounds**, each with a theme. Presets: 🤖 Robot, 🍔 Burger, 🕷️ Spider-Man, 🏢 Inside the office, 🏠 House (host can pick the theme per round). Some parts can be pre-filled (e.g. the robot's head is a default square) — players populate the rest.
 - Each round, every player is assigned one or more **parts** of the painting (e.g. the robot's left eye, the office plant). Parts are auto-distributed; the host can reassign any part before the round starts.
 - Players get **60 seconds** to draw their part with a simple canvas: pen & eraser, 4 brush sizes, 12 colors, undo/clear, plus a mini-map showing where their part sits in the final painting.
 - When time is up, the host gets a **private preview**, then reveals the combined painting to everyone with a dramatic part-by-part animation.

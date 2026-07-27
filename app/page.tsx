@@ -32,7 +32,7 @@ export default function Home() {
     <main className="mx-auto flex min-h-screen max-w-lg flex-col items-center justify-center gap-8 p-6">
       <div className="text-center">
         <h1 className="text-5xl font-black tracking-tight">
-          🎨 Doodle Together
+          🎨 Drawsembly Line
         </h1>
         <p className="mt-3 text-white/60">
           Everyone draws one piece. Together it becomes a masterpiece.

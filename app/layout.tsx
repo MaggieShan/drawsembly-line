@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Doodle Together",
+  title: "Drawsembly Line",
   description:
     "A multiplayer drawing party game — everyone draws a piece, together it becomes a masterpiece.",
 };

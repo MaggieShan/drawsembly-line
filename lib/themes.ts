@@ -5,6 +5,11 @@ export type Part = {
   label: string;
   hint: string;
   rect: Rect;
+  /**
+   * If set, this part is not assigned to a player — it's pre-rendered
+   * automatically (e.g. a plain default square).
+   */
+  prefill?: "square";
 };
 
 export type Theme = {
@@ -27,8 +32,9 @@ export const THEMES: Theme[] = [
       {
         id: "head",
         label: "Head",
-        hint: "Draw the robot's head — antenna? bolts? Leave room for eyes and mouth, they're someone else's job!",
+        hint: "The head is a default square — everyone else populates the rest of the robot.",
         rect: { x: 240, y: 30, w: 320, h: 260 },
+        prefill: "square",
       },
       {
         id: "body",
@@ -75,52 +81,90 @@ export const THEMES: Theme[] = [
     ],
   },
   {
-    id: "zach",
-    name: "Zach Lloyd",
-    emoji: "🧑‍💻",
+    id: "burger",
+    name: "Burger",
+    emoji: "🍔",
     canvas: { w: 800, h: 1000 },
     parts: [
       {
-        id: "face",
-        label: "Face",
-        hint: "Zach's face — eyes, nose, expression. Draw him mid-keynote.",
-        rect: { x: 270, y: 90, w: 260, h: 240 },
+        id: "bottom-bun",
+        label: "Bottom bun",
+        hint: "The bottom bun — the unsung hero holding it all together.",
+        rect: { x: 160, y: 710, w: 480, h: 180 },
       },
       {
-        id: "hair",
-        label: "Hair",
-        hint: "Zach's hair. Draw it with confidence.",
-        rect: { x: 260, y: 20, w: 280, h: 130 },
+        id: "pickles",
+        label: "Pickles & onions",
+        hint: "Pickles, onions, or whatever controversial extras you believe in.",
+        rect: { x: 180, y: 630, w: 440, h: 100 },
       },
       {
-        id: "torso",
-        label: "Torso",
-        hint: "The torso — startup tee? Quarter-zip? Warp merch?",
-        rect: { x: 220, y: 330, w: 360, h: 330 },
+        id: "patty",
+        label: "Patty",
+        hint: "The patty. Beef, veggie, or something deeply mysterious.",
+        rect: { x: 160, y: 510, w: 480, h: 140 },
       },
       {
-        id: "left-arm",
-        label: "Left arm",
-        hint: "Left arm. Maybe holding a terminal? A coffee?",
-        rect: { x: 70, y: 340, w: 160, h: 320 },
+        id: "cheese",
+        label: "Cheese",
+        hint: "The cheese — melty, drippy, ideally defying physics.",
+        rect: { x: 150, y: 430, w: 500, h: 110 },
       },
       {
-        id: "right-arm",
-        label: "Right arm",
-        hint: "Right arm. Waving? Typing in mid-air? Pointing at a chart that only goes up?",
-        rect: { x: 580, y: 340, w: 160, h: 320 },
+        id: "tomato",
+        label: "Tomato",
+        hint: "The tomato slice(s). Juicy. Perfectly round is optional.",
+        rect: { x: 160, y: 350, w: 480, h: 100 },
+      },
+      {
+        id: "lettuce",
+        label: "Lettuce",
+        hint: "The lettuce — frilly, ruffly, spilling out the sides.",
+        rect: { x: 140, y: 260, w: 520, h: 110 },
+      },
+      {
+        id: "top-bun",
+        label: "Top bun",
+        hint: "The top bun. Sesame seeds? A tiny flag? Go wild.",
+        rect: { x: 160, y: 60, w: 480, h: 220 },
+      },
+    ],
+  },
+  {
+    id: "spiderman",
+    name: "Spider-Man",
+    emoji: "🕷️",
+    canvas: { w: 800, h: 1000 },
+    parts: [
+      {
+        id: "web",
+        label: "Web",
+        hint: "The web behind him — strands, a whole net, maybe something caught in it.",
+        rect: { x: 20, y: 20, w: 760, h: 960 },
       },
       {
         id: "legs",
         label: "Legs",
-        hint: "The legs. Founder jeans or joggers, you decide.",
-        rect: { x: 250, y: 660, w: 300, h: 250 },
+        hint: "Spidey's legs — mid-swing, mid-crouch, or doing a superhero landing.",
+        rect: { x: 240, y: 610, w: 320, h: 340 },
       },
       {
-        id: "shoes",
-        label: "Shoes",
-        hint: "The shoes. Sensible sneakers? Crocs? Rocket boots?",
-        rect: { x: 230, y: 900, w: 340, h: 90 },
+        id: "body",
+        label: "Body",
+        hint: "The suit-clad torso — spider emblem front and center.",
+        rect: { x: 240, y: 290, w: 320, h: 340 },
+      },
+      {
+        id: "arms",
+        label: "Arms",
+        hint: "Both arms — one thwipping a web, the other doing… whatever feels right.",
+        rect: { x: 60, y: 280, w: 680, h: 320 },
+      },
+      {
+        id: "head",
+        label: "Head",
+        hint: "The masked head — big white eyes, web pattern if you're brave.",
+        rect: { x: 280, y: 70, w: 240, h: 230 },
       },
     ],
   },
@@ -226,7 +270,7 @@ export const THEMES: Theme[] = [
   },
 ];
 
-export const DEFAULT_ROUND_THEMES = ["robot", "zach", "office"];
+export const DEFAULT_ROUND_THEMES = ["robot", "burger", "spiderman"];
 
 export const ROUND_COUNT = 3;
 
