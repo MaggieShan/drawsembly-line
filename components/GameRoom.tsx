@@ -97,8 +97,9 @@ function ConnectedRoom({
   identity: { playerId: string; name: string };
 }) {
   const [view, setView] = useState<ClientView | null>(null);
+  // roundIndex -> groupIndex -> partId -> dataUrl
   const [images, setImages] = useState<
-    Record<number, Record<string, string>>
+    Record<number, Record<number, Record<string, string>>>
   >({});
   const [clockOffset, setClockOffset] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -125,7 +126,10 @@ function ConnectedRoom({
           ...prev,
           [msg.roundIndex]: {
             ...(prev[msg.roundIndex] ?? {}),
-            [msg.partId]: msg.dataUrl,
+            [msg.groupIndex]: {
+              ...(prev[msg.roundIndex]?.[msg.groupIndex] ?? {}),
+              [msg.partId]: msg.dataUrl,
+            },
           },
         }));
       }
@@ -146,7 +150,6 @@ function ConnectedRoom({
   }
 
   const round = view.rounds[view.roundIndex];
-  const theme = round ? getTheme(round.themeId) : null;
   const isHost = view.you.isHost;
   const showHostPanel =
     isHost && ["assign", "drawing", "reveal_wait", "reveal"].includes(view.phase);
@@ -159,7 +162,7 @@ function ConnectedRoom({
           {round && (
             <span className="rounded-full bg-white/10 px-3 py-1 text-sm">
               Round {view.roundIndex + 1}/{view.roundCount} ·{" "}
-              {theme?.emoji} {theme?.name}
+              {round.groups.length} group{round.groups.length === 1 ? "" : "s"}
             </span>
           )}
           <button
@@ -189,19 +192,29 @@ function ConnectedRoom({
           {view.phase === "reveal_wait" && (
             <RevealWaitView view={view} images={images} />
           )}
-          {view.phase === "reveal" && (
-            <div className="mx-auto max-w-3xl space-y-3">
+          {view.phase === "reveal" && round && (
+            <div className="mx-auto max-w-3xl space-y-8">
               <h2 className="text-center text-3xl font-black">
-                {theme?.emoji} Behold… your {theme?.name}!
+                🎉 Behold… your masterpieces!
               </h2>
-              {theme && (
-                <RevealCanvas
-                  theme={theme}
-                  images={images[view.roundIndex] ?? {}}
-                  animate
-                  downloadName={`round-${view.roundIndex + 1}-${theme.id}`}
-                />
-              )}
+              {round.groups.map((g, gi) => {
+                const theme = getTheme(g.themeId);
+                return (
+                  <div key={gi} className="space-y-2">
+                    <h3 className="text-center text-xl font-bold">
+                      Group {gi + 1}: {theme.emoji} {theme.name}
+                    </h3>
+                    <RevealCanvas
+                      theme={theme}
+                      images={images[view.roundIndex]?.[gi] ?? {}}
+                      animate
+                      downloadName={`round-${view.roundIndex + 1}-group-${
+                        gi + 1
+                      }-${theme.id}`}
+                    />
+                  </div>
+                );
+              })}
               {!isHost && (
                 <p className="text-center text-white/50">
                   Waiting for the host to continue…
@@ -276,7 +289,8 @@ function LobbyView({
         </p>
       )}
       <p className="text-sm text-white/40">
-        3 rounds · 60s each · every round becomes one collective painting
+        3 rounds · 60s each · players are split into groups, and every group
+        creates its own collective painting
       </p>
     </div>
   );
@@ -285,19 +299,29 @@ function LobbyView({
 function AssignView({ view }: { view: ClientView }) {
   const yourParts = view.yourParts;
   const round = view.rounds[view.roundIndex];
-  const theme = getTheme(round.themeId);
+  const gi = view.yourGroupIndex;
+  const group = gi != null ? round.groups[gi] : null;
+  const theme = group ? getTheme(group.themeId) : null;
+  const playerName = (id: string) =>
+    view.players.find((p) => p.id === id)?.name ?? "?";
   return (
     <div className="card mx-auto max-w-xl space-y-4 text-center">
       <h2 className="text-2xl font-bold">
-        Round {view.roundIndex + 1}: {theme.emoji} {theme.name}
+        Round {view.roundIndex + 1} · {round.groups.length} group
+        {round.groups.length === 1 ? "" : "s"}
       </h2>
-      {view.you.isHost ? (
+      {view.you.isHost && (
         <p className="text-white/60">
-          Review the assignments on the right, then start the round.
+          Pick each group&apos;s preset and adjust groups &amp; parts on the
+          right, then start the round.
         </p>
-      ) : yourParts.length > 0 ? (
+      )}
+      {group && theme ? (
         <>
-          <p className="text-white/60">You&apos;ll be drawing:</p>
+          <p className="text-white/60">
+            You&apos;re in <b>Group {gi! + 1}</b>, painting a {theme.emoji}{" "}
+            <b>{theme.name}</b>. You&apos;ll be drawing:
+          </p>
           <div className="flex flex-wrap justify-center gap-2">
             {yourParts.map((pid) => {
               const part = theme.parts.find((p) => p.id === pid);
@@ -311,15 +335,20 @@ function AssignView({ view }: { view: ClientView }) {
               );
             })}
           </div>
-          <p className="animate-pulse text-white/50">
-            Get ready — the host starts the 60s timer…
+          <p className="text-sm text-white/50">
+            Groupmates: {group.members.map(playerName).join(", ")}
           </p>
+          {!view.you.isHost && (
+            <p className="animate-pulse text-white/50">
+              Get ready — the host starts the 60s timer…
+            </p>
+          )}
         </>
-      ) : (
+      ) : !view.you.isHost ? (
         <p className="text-white/60">
           You&apos;re sitting this round out — enjoy the show! 🍿
         </p>
-      )}
+      ) : null}
       <PlayerChips view={view} />
     </div>
   );
@@ -371,7 +400,9 @@ function DrawingView({
   clockOffset: number;
 }) {
   const round = view.rounds[view.roundIndex];
-  const theme = getTheme(round.themeId);
+  const gi = view.yourGroupIndex;
+  const group = gi != null ? round.groups[gi] : null;
+  const theme = group ? getTheme(group.themeId) : null;
   const yourParts = view.yourParts;
   const [activePart, setActivePart] = useState(yourParts[0] ?? "");
   const localDeadline = view.drawingEndsAt
@@ -386,12 +417,14 @@ function DrawingView({
   }, [yourParts, activePart]);
 
   const onSnapshot = useCallback(
-    (partId: string, dataUrl: string) =>
-      send({ type: "snapshot", partId, dataUrl }),
-    [send]
+    (partId: string, dataUrl: string) => {
+      if (gi == null) return;
+      send({ type: "snapshot", groupIndex: gi, partId, dataUrl });
+    },
+    [send, gi]
   );
 
-  if (yourParts.length === 0) {
+  if (gi == null || !group || !theme || yourParts.length === 0) {
     return (
       <div className="card mx-auto max-w-xl space-y-4 text-center">
         <h2 className="text-2xl font-bold">You&apos;re spectating 🍿</h2>
@@ -407,6 +440,9 @@ function DrawingView({
 
   return (
     <div className="space-y-4">
+      <p className="text-center text-sm text-white/50">
+        Group {gi + 1} · {theme.emoji} {theme.name}
+      </p>
       {view.drawingEndsAt && (
         <Countdown endsAt={view.drawingEndsAt} clockOffset={clockOffset} />
       )}
@@ -415,7 +451,7 @@ function DrawingView({
         <div className="flex flex-wrap gap-2">
           {yourParts.map((pid) => {
             const part = theme.parts.find((p) => p.id === pid);
-            const done = round.doneParts.includes(pid);
+            const done = group.doneParts.includes(pid);
             return (
               <button
                 key={pid}
@@ -436,7 +472,7 @@ function DrawingView({
       {yourParts.map((pid) => {
         const part = theme.parts.find((p) => p.id === pid);
         if (!part) return null;
-        const done = round.doneParts.includes(pid);
+        const done = group.doneParts.includes(pid);
         return (
           <div
             key={pid}
@@ -454,7 +490,7 @@ function DrawingView({
                 <button
                   className="btn-primary"
                   disabled={done}
-                  onClick={() => send({ type: "done", partId: pid })}
+                  onClick={() => send({ type: "done", groupIndex: gi, partId: pid })}
                 >
                   {done ? "✅ Done" : "I'm done"}
                 </button>
@@ -477,21 +513,32 @@ function RevealWaitView({
   images,
 }: {
   view: ClientView;
-  images: Record<number, Record<string, string>>;
+  images: Record<number, Record<number, Record<string, string>>>;
 }) {
   const round = view.rounds[view.roundIndex];
-  const theme = getTheme(round.themeId);
   if (view.you.isHost) {
     return (
-      <div className="mx-auto max-w-3xl space-y-3">
+      <div className="mx-auto max-w-3xl space-y-6">
         <h2 className="text-center text-2xl font-bold">
           🤫 Private preview (only you can see this)
         </h2>
-        <RevealCanvas
-          theme={theme}
-          images={images[view.roundIndex] ?? {}}
-          downloadName={`round-${view.roundIndex + 1}-${theme.id}`}
-        />
+        {round.groups.map((g, gi) => {
+          const theme = getTheme(g.themeId);
+          return (
+            <div key={gi} className="space-y-2">
+              <h3 className="text-lg font-bold">
+                Group {gi + 1}: {theme.emoji} {theme.name}
+              </h3>
+              <RevealCanvas
+                theme={theme}
+                images={images[view.roundIndex]?.[gi] ?? {}}
+                downloadName={`round-${view.roundIndex + 1}-group-${gi + 1}-${
+                  theme.id
+                }`}
+              />
+            </div>
+          );
+        })}
       </div>
     );
   }
@@ -511,7 +558,7 @@ function GalleryView({
   send,
 }: {
   view: ClientView;
-  images: Record<number, Record<string, string>>;
+  images: Record<number, Record<number, Record<string, string>>>;
   send: (m: ClientMessage) => void;
 }) {
   const revealed = view.rounds
@@ -528,21 +575,23 @@ function GalleryView({
         </p>
       </div>
       <div className="grid gap-8 md:grid-cols-2">
-        {revealed.map(({ round, i }) => {
-          const theme = getTheme(round.themeId);
-          return (
-            <div key={i} className="space-y-2">
-              <h3 className="text-lg font-bold">
-                Round {i + 1}: {theme.emoji} {theme.name}
-              </h3>
-              <RevealCanvas
-                theme={theme}
-                images={images[i] ?? {}}
-                downloadName={`round-${i + 1}-${theme.id}`}
-              />
-            </div>
-          );
-        })}
+        {revealed.flatMap(({ round, i }) =>
+          round.groups.map((g, gi) => {
+            const theme = getTheme(g.themeId);
+            return (
+              <div key={`${i}-${gi}`} className="space-y-2">
+                <h3 className="text-lg font-bold">
+                  Round {i + 1}, Group {gi + 1}: {theme.emoji} {theme.name}
+                </h3>
+                <RevealCanvas
+                  theme={theme}
+                  images={images[i]?.[gi] ?? {}}
+                  downloadName={`round-${i + 1}-group-${gi + 1}-${theme.id}`}
+                />
+              </div>
+            );
+          })
+        )}
       </div>
       {view.you.isHost && (
         <div className="flex justify-center">

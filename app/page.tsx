@@ -91,8 +91,8 @@ export default function Home() {
       </div>
 
       <p className="text-center text-sm text-white/40">
-        3 rounds · 60 seconds each · one painting per round, drawn by everyone
-        at once
+        3 rounds · 60 seconds each · players split into groups, one painting
+        per group — works great with 30+ people
       </p>
     </main>
   );

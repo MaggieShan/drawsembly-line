@@ -5,18 +5,19 @@ A multiplayer drawing party game (scribbl.io-style) for the weekly meeting: ever
 ## How it works
 
 - Anyone can join a room via a link/room code. The first person in becomes the **host**.
-- **3 rounds**, each with a theme. Presets: 🤖 Robot, 🍔 Burger, 🕷️ Spider-Man, 🏢 Inside the office, 🏠 House (host can pick the theme per round). Some parts can be pre-filled (e.g. the robot's head is a default square) — players populate the rest.
-- Each round, every player is assigned one or more **parts** of the painting (e.g. the robot's left eye, the office plant). Parts are auto-distributed; the host can reassign any part before the round starts.
+- Built for big crowds (30+ people): each round, players are automatically split into **groups** sized to fit the preset's parts (e.g. 30 players on a 7-part preset → 5 groups), and every group paints its own canvas.
+- **3 rounds**. Presets: 🤖 Robot, 🍔 Burger, 🕷️ Spider-Man, 🏢 Inside the office, 🏠 House. Before each round starts, the host can pick each group's preset, move players between groups, re-shuffle the groups, and reassign parts. Some parts can be pre-filled (e.g. the robot's head is a default square) — players populate the rest.
+- Each round, every player is assigned one or more **parts** of their group's painting (e.g. the robot's left eye, the office plant).
 - Players get **60 seconds** to draw their part with a simple canvas: pen & eraser, 4 brush sizes, 12 colors, undo/clear, plus a mini-map showing where their part sits in the final painting.
 - When time is up, the host gets a **private preview**, then reveals the combined painting to everyone with a dramatic part-by-part animation.
 - After 3 rounds: the **final gallery** with every painting, downloadable as PNGs.
 
 ### Host controls
 
-- Sees who gets which prompt and can reassign parts
-- Picks the theme per round
+- Sees who gets which prompt and can reassign parts within each group
+- Picks the preset per group, moves players between groups, and can re-shuffle groups
 - Starts the game / each round, can end drawing early
-- Decides when to reveal each painting
+- Decides when to reveal each round's paintings
 - Advances rounds, ends the game at any time, and can restart from the gallery
 
 ## Architecture
@@ -42,7 +43,7 @@ With `npm run dev:party` running:
 node test/e2e.mjs
 ```
 
-Simulates a full 3-round game (joins, assignment, reassignment, theme switching, drawing, reveal, gallery, late joiner, play-again) over WebSockets.
+Simulates a full 3-round game with 9 players (joins, grouping, reassignment, moving players between groups, per-group theme switching, drawing, reveal, gallery, late joiner, play-again) over WebSockets.
 
 ## Deployment
 

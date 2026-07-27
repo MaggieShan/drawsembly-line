@@ -14,14 +14,22 @@ export type PublicPlayer = {
   isHost: boolean;
 };
 
-export type RoundView = {
+/** One group of players painting one canvas together. */
+export type GroupView = {
   themeId: string;
+  /** playerIds of this group's members. */
+  members: string[];
   /** partId -> playerId. Only sent to the host (players see just their own parts). */
   assignments?: Record<string, string>;
   /** partIds that have at least one snapshot. */
   submittedParts: string[];
   /** partIds whose player marked themselves done. */
   doneParts: string[];
+};
+
+export type RoundView = {
+  /** Players are split into groups; each group paints its own canvas. */
+  groups: GroupView[];
   revealed: boolean;
 };
 
@@ -33,6 +41,8 @@ export type ClientView = {
   roundIndex: number;
   roundCount: number;
   rounds: RoundView[];
+  /** Index of the group you belong to in the current round (null if none). */
+  yourGroupIndex: number | null;
   /** Parts assigned to *you* in the current round. */
   yourParts: string[];
   /** Server epoch ms when the drawing phase ends (drawing phase only). */
@@ -45,11 +55,13 @@ export type ClientView = {
 export type ClientMessage =
   | { type: "join"; playerId: string; name: string }
   | { type: "start_game" }
-  | { type: "set_theme"; themeId: string }
-  | { type: "reassign"; partId: string; playerId: string }
+  | { type: "set_theme"; groupIndex: number; themeId: string }
+  | { type: "reassign"; groupIndex: number; partId: string; playerId: string }
+  | { type: "move_player"; playerId: string; groupIndex: number }
+  | { type: "shuffle_groups" }
   | { type: "start_round" }
-  | { type: "snapshot"; partId: string; dataUrl: string }
-  | { type: "done"; partId: string }
+  | { type: "snapshot"; groupIndex: number; partId: string; dataUrl: string }
+  | { type: "done"; groupIndex: number; partId: string }
   | { type: "end_drawing" }
   | { type: "reveal" }
   | { type: "next_round" }
@@ -59,7 +71,13 @@ export type ClientMessage =
 // ---- server -> client ----
 export type ServerMessage =
   | { type: "sync"; view: ClientView }
-  | { type: "part_image"; roundIndex: number; partId: string; dataUrl: string }
+  | {
+      type: "part_image";
+      roundIndex: number;
+      groupIndex: number;
+      partId: string;
+      dataUrl: string;
+    }
   | { type: "error"; message: string };
 
 export const PLAYER_COLORS = [
