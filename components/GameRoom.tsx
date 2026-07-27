@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import type {
   ClientMessage,
   ClientView,
+  GroupView,
   ServerMessage,
 } from "@/lib/protocol";
 import { getTheme } from "@/lib/themes";
@@ -193,6 +194,7 @@ function ConnectedRoom({ code, name }: { code: string; name: string }) {
                     <RevealCanvas
                       theme={theme}
                       images={images[view.roundIndex]?.[gi] ?? {}}
+                      attributions={partAttributions(view, g)}
                       animate
                       downloadName={`round-${view.roundIndex + 1}-group-${
                         gi + 1
@@ -217,6 +219,22 @@ function ConnectedRoom({ code, name }: { code: string; name: string }) {
       </div>
     </main>
   );
+}
+
+function partAttributions(view: ClientView, group: GroupView) {
+  const byPart: Record<string, string> = {};
+  for (const [partId, playerId] of Object.entries(group.assignments ?? {})) {
+    const player = view.players.find((p) => p.id === playerId);
+    if (player) byPart[partId] = player.name;
+  }
+  return byPart;
+}
+
+function formatTimer(seconds: number) {
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return remainder === 0 ? `${minutes}m` : `${minutes}m ${remainder}s`;
 }
 
 function PlayerChips({ view }: { view: ClientView }) {
@@ -275,8 +293,8 @@ function LobbyView({
         </p>
       )}
       <p className="text-sm text-white/40">
-        3 rounds · 60s each · players are split into groups, and every group
-        creates its own collective painting
+        3 rounds · adjustable drawing timers · players are split into groups,
+        and every group creates its own collective painting
       </p>
     </div>
   );
@@ -302,7 +320,7 @@ function AssignView({ view }: { view: ClientView }) {
           right, then start the round.
         </p>
       )}
-      {group && theme ? (
+      {group && theme && yourParts.length > 0 ? (
         <>
           <p className="text-white/60">
             You&apos;re in <b>Group {gi! + 1}</b>, painting a {theme.emoji}{" "}
@@ -326,7 +344,8 @@ function AssignView({ view }: { view: ClientView }) {
           </p>
           {!view.you.isHost && (
             <p className="animate-pulse text-white/50">
-              Get ready — the host starts the 60s timer…
+              Get ready — the host starts the {formatTimer(round.drawSeconds)}{" "}
+              timer…
             </p>
           )}
         </>
@@ -343,9 +362,11 @@ function AssignView({ view }: { view: ClientView }) {
 function Countdown({
   endsAt,
   clockOffset,
+  durationSeconds,
 }: {
   endsAt: number;
   clockOffset: number;
+  durationSeconds: number;
 }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -354,7 +375,8 @@ function Countdown({
   }, []);
   const remaining = Math.max(0, endsAt - (now + clockOffset));
   const secs = Math.ceil(remaining / 1000);
-  const pct = Math.min(100, (remaining / 60000) * 100);
+  const totalMs = Math.max(1, durationSeconds * 1000);
+  const pct = Math.min(100, (remaining / totalMs) * 100);
   return (
     <div className="space-y-1">
       <div
@@ -399,6 +421,8 @@ function DrawingView({
   useEffect(() => {
     if (!yourParts.includes(activePart) && yourParts.length > 0) {
       setActivePart(yourParts[0]);
+    } else if (yourParts.length === 0 && activePart !== "") {
+      setActivePart("");
     }
   }, [yourParts, activePart]);
 
@@ -415,7 +439,11 @@ function DrawingView({
       <div className="card mx-auto max-w-xl space-y-4 text-center">
         <h2 className="text-2xl font-bold">You&apos;re spectating 🍿</h2>
         {view.drawingEndsAt && (
-          <Countdown endsAt={view.drawingEndsAt} clockOffset={clockOffset} />
+          <Countdown
+            endsAt={view.drawingEndsAt}
+            clockOffset={clockOffset}
+            durationSeconds={round.drawSeconds}
+          />
         )}
         <p className="text-white/60">
           The others are furiously scribbling. Judge them silently.
@@ -430,7 +458,11 @@ function DrawingView({
         Group {gi + 1} · {theme.emoji} {theme.name}
       </p>
       {view.drawingEndsAt && (
-        <Countdown endsAt={view.drawingEndsAt} clockOffset={clockOffset} />
+        <Countdown
+          endsAt={view.drawingEndsAt}
+          clockOffset={clockOffset}
+          durationSeconds={round.drawSeconds}
+        />
       )}
 
       {yourParts.length > 1 && (
@@ -518,6 +550,7 @@ function RevealWaitView({
               <RevealCanvas
                 theme={theme}
                 images={images[view.roundIndex]?.[gi] ?? {}}
+                attributions={partAttributions(view, g)}
                 downloadName={`round-${view.roundIndex + 1}-group-${gi + 1}-${
                   theme.id
                 }`}
@@ -572,6 +605,7 @@ function GalleryView({
                 <RevealCanvas
                   theme={theme}
                   images={images[i]?.[gi] ?? {}}
+                  attributions={partAttributions(view, g)}
                   downloadName={`round-${i + 1}-group-${gi + 1}-${theme.id}`}
                 />
               </div>

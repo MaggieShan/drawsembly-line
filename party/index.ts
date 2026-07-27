@@ -7,11 +7,15 @@ import type {
   PublicPlayer,
   RoundView,
   ServerMessage,
+  ShuffleMode,
 } from "../lib/protocol";
 import { PLAYER_COLORS } from "../lib/protocol";
 import {
+  DEFAULT_ROUND_THEME_POOLS,
   DEFAULT_ROUND_THEMES,
   DRAW_SECONDS,
+  MAX_DRAW_SECONDS,
+  MIN_DRAW_SECONDS,
   ROUND_COUNT,
   getTheme,
 } from "../lib/themes";
@@ -29,6 +33,7 @@ type Player = {
 /** One group of players painting one canvas. */
 type Group = {
   themeId: string;
+  assignmentMode: ShuffleMode;
   members: string[]; // playerIds
   assignments: Record<string, string>; // partId -> playerId
   submissions: Record<string, string>; // partId -> dataUrl (latest snapshot)
@@ -36,9 +41,10 @@ type Group = {
 };
 
 type Round = {
-  /** Theme groups default to when (re)building this round's groups. */
-  defaultThemeId: string;
+  /** Theme pool groups default to when (re)building this round's groups. */
+  defaultThemeIds: string[];
   groups: Group[];
+  drawSeconds: number;
   revealed: boolean;
 };
 
@@ -82,11 +88,13 @@ export default class GameServer implements Party.Server {
     const roundViews: RoundView[] = this.rounds.map((r) => ({
       groups: r.groups.map<GroupView>((g) => ({
         themeId: g.themeId,
+        assignmentMode: g.assignmentMode,
         members: g.members,
-        assignments: isHost ? g.assignments : undefined,
+        assignments: isHost || r.revealed ? g.assignments : undefined,
         submittedParts: Object.keys(g.submissions),
         doneParts: [...g.doneParts],
       })),
+      drawSeconds: r.drawSeconds,
       revealed: r.revealed,
     }));
     const cur = this.currentRound;
@@ -163,9 +171,13 @@ export default class GameServer implements Party.Server {
     return getTheme(themeId).parts.filter((p) => !p.prefill);
   }
 
-  private newGroup(themeId: string): Group {
+  private newGroup(
+    themeId: string,
+    assignmentMode: ShuffleMode = "one_each"
+  ): Group {
     return {
       themeId,
+      assignmentMode,
       members: [],
       assignments: {},
       submissions: {},
@@ -173,28 +185,52 @@ export default class GameServer implements Party.Server {
     };
   }
 
-  /** Round-robin the group's assignable parts among its members. */
+  private randomDefaultThemeId(round: Round) {
+    const themeIds = round.defaultThemeIds.length > 0
+      ? round.defaultThemeIds
+      : [DEFAULT_ROUND_THEMES[0] ?? "robot"];
+    return themeIds[Math.floor(Math.random() * themeIds.length)] ?? themeIds[0];
+  }
+
+  private defaultGroupSize(round: Round) {
+    const themeIds = round.defaultThemeIds.length > 0
+      ? round.defaultThemeIds
+      : [DEFAULT_ROUND_THEMES[0] ?? "robot"];
+    return Math.max(
+      1,
+      Math.min(...themeIds.map((themeId) => this.assignableParts(themeId).length))
+    );
+  }
+
   private assignParts(group: Group) {
     group.assignments = {};
     if (group.members.length === 0) return;
-    this.assignableParts(group.themeId).forEach((part, i) => {
-      group.assignments[part.id] = group.members[i % group.members.length];
+    const parts = this.assignableParts(group.themeId);
+    if (group.assignmentMode === "fill_all") {
+      parts.forEach((part, i) => {
+        group.assignments[part.id] = group.members[i % group.members.length];
+      });
+      return;
+    }
+    parts.slice(0, group.members.length).forEach((part, i) => {
+      group.assignments[part.id] = group.members[i];
     });
   }
 
   /**
-   * Split all players into groups sized to fit the theme's assignable parts
-   * (e.g. 30 players on a 7-part preset -> 5 groups), so everyone draws.
+   * Split all players into groups sized to fit the theme's assignable parts.
+   * Groups default to one-each mode so extra preset parts stay optional unless
+   * the host switches a group to fill-all.
    */
-  private makeGroups(themeId: string): Group[] {
+  private makeGroups(round: Round): Group[] {
     const shuffled = [...this.players]
       .map((p) => ({ id: p.id, r: Math.random() }))
       .sort((a, b) => a.r - b.r)
       .map((x) => x.id);
-    const maxSize = Math.max(1, this.assignableParts(themeId).length);
+    const maxSize = this.defaultGroupSize(round);
     const groupCount = Math.max(1, Math.ceil(shuffled.length / maxSize));
     const groups = Array.from({ length: groupCount }, () =>
-      this.newGroup(themeId)
+      this.newGroup(this.randomDefaultThemeId(round))
     );
     shuffled.forEach((pid, i) => groups[i % groupCount].members.push(pid));
     for (const g of groups) this.assignParts(g);
@@ -205,17 +241,27 @@ export default class GameServer implements Party.Server {
   private startAssign() {
     const round = this.currentRound;
     if (!round) return;
-    round.groups = this.makeGroups(round.defaultThemeId);
+    round.groups = this.makeGroups(round);
     this.phase = "assign";
   }
 
   private setupRounds() {
-    this.rounds = DEFAULT_ROUND_THEMES.slice(0, ROUND_COUNT).map((themeId) => ({
-      defaultThemeId: themeId,
+    this.rounds = DEFAULT_ROUND_THEME_POOLS.slice(0, ROUND_COUNT).map((themeIds) => ({
+      defaultThemeIds: themeIds,
       groups: [],
+      drawSeconds: DRAW_SECONDS,
       revealed: false,
     }));
     this.roundIndex = 0;
+  }
+
+  private normalizeDrawSeconds(seconds: unknown): number | null {
+    if (typeof seconds !== "number" || !Number.isFinite(seconds)) return null;
+    const wholeSeconds = Math.round(seconds);
+    return Math.min(
+      MAX_DRAW_SECONDS,
+      Math.max(MIN_DRAW_SECONDS, wholeSeconds)
+    );
   }
 
   private clearDrawTimer() {
@@ -223,6 +269,13 @@ export default class GameServer implements Party.Server {
       clearTimeout(this.drawTimer);
       this.drawTimer = null;
     }
+  }
+
+  private scheduleDrawTimer() {
+    if (this.phase !== "drawing" || this.drawingEndsAt == null) return;
+    this.clearDrawTimer();
+    const delayMs = Math.max(0, this.drawingEndsAt - Date.now()) + GRACE_MS;
+    this.drawTimer = setTimeout(() => this.finishDrawing(), delayMs);
   }
 
   private finishDrawing() {
@@ -372,17 +425,61 @@ export default class GameServer implements Party.Server {
         this.broadcastSync();
         return;
       }
+      case "set_group_assignment_mode": {
+        const round = this.currentRound;
+        if (!round || this.phase !== "assign") return;
+        const group = round.groups[msg.groupIndex];
+        if (!group) return;
+        group.assignmentMode = msg.mode;
+        group.submissions = {};
+        group.doneParts = new Set();
+        this.assignParts(group);
+        this.broadcastSync();
+        return;
+      }
+      case "set_round_timer": {
+        const round = this.currentRound;
+        if (
+          !round ||
+          (this.phase !== "assign" && this.phase !== "drawing") ||
+          msg.roundIndex !== this.roundIndex
+        )
+          return;
+        const seconds = this.normalizeDrawSeconds(msg.seconds);
+        if (seconds == null) return;
+        if (this.phase === "drawing") {
+          const startedAt =
+            this.drawingEndsAt == null
+              ? Date.now()
+              : this.drawingEndsAt - round.drawSeconds * 1000;
+          round.drawSeconds = seconds;
+          this.drawingEndsAt = startedAt + seconds * 1000;
+          this.scheduleDrawTimer();
+        } else {
+          round.drawSeconds = seconds;
+        }
+        this.broadcastSync();
+        return;
+      }
       case "reassign": {
         const round = this.currentRound;
         if (!round || this.phase !== "assign") return;
         const group = round.groups[msg.groupIndex];
         if (!group) return;
-        if (!group.members.includes(msg.playerId)) return;
         const part = getTheme(group.themeId).parts.find(
           (p) => p.id === msg.partId
         );
         if (!part || part.prefill) return;
+        if (msg.playerId == null || msg.playerId === "") {
+          delete group.assignments[msg.partId];
+          delete group.submissions[msg.partId];
+          group.doneParts.delete(msg.partId);
+          this.broadcastSync();
+          return;
+        }
+        if (!group.members.includes(msg.playerId)) return;
         group.assignments[msg.partId] = msg.playerId;
+        group.doneParts.delete(msg.partId);
         this.broadcastSync();
         return;
       }
@@ -408,19 +505,32 @@ export default class GameServer implements Party.Server {
       case "shuffle_groups": {
         const round = this.currentRound;
         if (!round || this.phase !== "assign") return;
-        round.groups = this.makeGroups(round.defaultThemeId);
+        round.groups = this.makeGroups(round);
+        this.broadcastSync();
+        return;
+      }
+      case "add_group": {
+        const round = this.currentRound;
+        if (!round || this.phase !== "assign") return;
+        round.groups.push(this.newGroup(this.randomDefaultThemeId(round)));
+        this.broadcastSync();
+        return;
+      }
+      case "remove_group": {
+        const round = this.currentRound;
+        if (!round || this.phase !== "assign") return;
+        if (!round.groups[msg.groupIndex]) return;
+        round.groups.splice(msg.groupIndex, 1);
         this.broadcastSync();
         return;
       }
       case "start_round": {
         if (this.phase !== "assign") return;
+        const round = this.currentRound;
+        if (!round) return;
         this.phase = "drawing";
-        this.drawingEndsAt = Date.now() + DRAW_SECONDS * 1000;
-        this.clearDrawTimer();
-        this.drawTimer = setTimeout(
-          () => this.finishDrawing(),
-          DRAW_SECONDS * 1000 + GRACE_MS
-        );
+        this.drawingEndsAt = Date.now() + round.drawSeconds * 1000;
+        this.scheduleDrawTimer();
         this.broadcastSync();
         return;
       }

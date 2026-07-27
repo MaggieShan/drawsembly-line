@@ -61,7 +61,7 @@ class Client {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// 9 players: robot (7 assignable parts) -> 2 groups.
+// 9 players: robot (8 assignable parts) -> 2 groups.
 const host = new Client("Hosty");
 const others = Array.from(
   { length: 8 },
@@ -85,6 +85,10 @@ await Promise.all(
   clients.map((c) => c.until((v) => v.phase === "assign", "phase -> assign"))
 );
 check(host.view.rounds.length === 3, "3 rounds configured");
+check(
+  host.view.rounds.every((r) => r.drawSeconds === 60),
+  "round timers default to 60s"
+);
 
 console.log("Grouping:");
 const r0 = host.view.rounds[0];
@@ -95,8 +99,8 @@ check(
 );
 for (const [gi, g] of r0.groups.entries()) {
   check(
-    Object.keys(g.assignments).length === 7,
-    `group ${gi + 1} has all 7 assignable parts assigned`
+    Object.keys(g.assignments).length === g.members.length,
+    `group ${gi + 1} has one assigned part per member`
   );
   check(
     g.assignments["head"] === undefined,
@@ -113,8 +117,8 @@ check(
   "every player is in exactly one group"
 );
 check(
-  clients.every((c) => c.view.yourParts.length >= 1),
-  "every player has at least one part"
+  clients.every((c) => c.view.yourParts.length === 1),
+  "every player has exactly one part"
 );
 check(
   clients.every((c) => c.view.yourGroupIndex !== null),
@@ -169,28 +173,110 @@ await host.until(
   "theme set per group (group 2 house, group 1 robot)"
 );
 
-// Re-shuffle groups resets to the round default
+// Each group can choose whether to fill every part, assigning extras round-robin.
+host.send({ type: "set_group_assignment_mode", groupIndex: 0, mode: "fill_all" });
+await host.until(
+  (v) =>
+    v.rounds[0].groups[0].themeId === "robot" &&
+    v.rounds[0].groups[0].assignmentMode === "fill_all" &&
+    Object.keys(v.rounds[0].groups[0].assignments).length === 8,
+  "fill-all mode assigns every drawable part in one group"
+);
+check(
+  clients.some(
+    (c) => c.view.yourGroupIndex === 0 && c.view.yourParts.length > 1
+  ),
+  "fill-all mode can assign multiple parts to a player in that group"
+);
+
+// The same group can switch back to one part per player with extras optional.
+host.send({ type: "set_group_assignment_mode", groupIndex: 0, mode: "one_each" });
+await host.until(
+  (v) =>
+    v.rounds[0].groups[0].themeId === "robot" &&
+    v.rounds[0].groups[0].assignmentMode === "one_each" &&
+    Object.keys(v.rounds[0].groups[0].assignments).length ===
+      v.rounds[0].groups[0].members.length,
+  "one-each mode leaves extras optional in one group"
+);
+check(
+  clients.every((c) => c.view.yourParts.length === 1),
+  "one-each modes assign exactly one part per player"
+);
+
+// Re-shuffling group membership resets to the round default preset.
 host.send({ type: "shuffle_groups" });
 await host.until(
   (v) =>
     v.rounds[0].groups.length === 2 &&
-    v.rounds[0].groups.every((g) => g.themeId === "robot"),
-  "shuffle rebuilds groups with the round's default theme"
+    v.rounds[0].groups.every(
+      (g) =>
+        g.themeId === "robot" &&
+        g.assignmentMode === "one_each" &&
+        Object.keys(g.assignments).length === g.members.length
+    ),
+  "group shuffle resets to default robot groups"
 );
 
 // Non-host cannot start the round
 p2.send({ type: "start_round" });
 await sleep(300);
 check(host.view.phase === "assign", "non-host cannot start round");
+// Non-host cannot update the round timer
+p2.send({ type: "set_round_timer", roundIndex: 0, seconds: 30 });
+await sleep(300);
+check(host.view.rounds[0].drawSeconds === 60, "non-host cannot update timer");
 
-async function playRound(expectTheme, { useTimerEnd = false } = {}) {
+// Host can customize the current round's timer before drawing starts.
+host.send({ type: "set_round_timer", roundIndex: 0, seconds: 45 });
+await host.until(
+  (v) => v.rounds[0].drawSeconds === 45,
+  "host updated round 1 timer"
+);
+check(p2.view.rounds[0].drawSeconds === 45, "timer update syncs to players");
+
+async function playRound(
+  expectTheme,
+  { useTimerEnd = false, expectedSeconds = 60, liveUpdateSeconds = null } = {}
+) {
+  const expectedThemes = Array.isArray(expectTheme) ? expectTheme : [expectTheme];
+  let timerSeconds = expectedSeconds;
   host.send({ type: "start_round" });
   await Promise.all(
     clients.map((c) => c.until((v) => v.phase === "drawing", "phase -> drawing"))
   );
   check(typeof host.view.drawingEndsAt === "number", "drawingEndsAt set");
+  check(
+    host.view.rounds[host.view.roundIndex].drawSeconds === timerSeconds,
+    `round timer is ${timerSeconds}s`
+  );
   const remaining = host.view.drawingEndsAt - host.view.serverNow;
-  check(remaining > 55000 && remaining <= 61000, "≈60s timer");
+  check(
+    remaining > timerSeconds * 1000 - 5000 &&
+      remaining <= timerSeconds * 1000 + 1000,
+    `≈${timerSeconds}s timer`
+  );
+
+  if (liveUpdateSeconds != null) {
+    host.send({
+      type: "set_round_timer",
+      roundIndex: host.view.roundIndex,
+      seconds: liveUpdateSeconds,
+    });
+    await host.until(
+      (v) =>
+        v.phase === "drawing" &&
+        v.rounds[v.roundIndex].drawSeconds === liveUpdateSeconds,
+      "live timer update applied"
+    );
+    timerSeconds = liveUpdateSeconds;
+    const updatedRemaining = host.view.drawingEndsAt - host.view.serverNow;
+    check(
+      updatedRemaining > timerSeconds * 1000 - 5000 &&
+        updatedRemaining <= timerSeconds * 1000 + 1000,
+      `≈${timerSeconds}s timer after live update`
+    );
+  }
 
   // Everyone submits snapshots for their parts
   for (const c of clients) {
@@ -210,7 +296,7 @@ async function playRound(expectTheme, { useTimerEnd = false } = {}) {
   );
 
   if (useTimerEnd) {
-    host.send({ type: "end_drawing" }); // host ends early instead of waiting 60s
+    host.send({ type: "end_drawing" }); // host ends early instead of waiting for the timer
   } else {
     for (const c of clients) {
       for (const partId of c.view.yourParts) {
@@ -238,24 +324,41 @@ async function playRound(expectTheme, { useTimerEnd = false } = {}) {
   );
   check(
     p2.view.rounds[p2.view.roundIndex].groups.every(
-      (g) => g.themeId === expectTheme
+      (g) => expectedThemes.includes(g.themeId)
     ),
-    `all groups on theme ${expectTheme}`
+    `all groups on theme ${expectedThemes.join(" or ")}`
+  );
+  check(
+    p2.view.rounds[p2.view.roundIndex].groups.every(
+      (g) => g.assignments && Object.keys(g.assignments).length > 0
+    ),
+    "non-host can see revealed assignments for attribution"
   );
   host.send({ type: "next_round" });
 }
 
 console.log("Round 1:");
-await playRound("robot");
+await playRound("robot", { expectedSeconds: 45 });
 await host.until((v) => v.phase === "assign" && v.roundIndex === 1, "round 2 assign");
 
 console.log("Round 2:");
-await playRound("burger", { useTimerEnd: true });
+check(host.view.rounds[1].drawSeconds === 60, "round 2 timer starts at default");
+host.send({ type: "set_round_timer", roundIndex: 1, seconds: 90 });
+await host.until(
+  (v) => v.rounds[1].drawSeconds === 90,
+  "host updated round 2 timer"
+);
+await playRound(["farm", "aquarium", "zoo"], {
+  useTimerEnd: true,
+  expectedSeconds: 90,
+  liveUpdateSeconds: 120,
+});
 await host.until((v) => v.phase === "assign" && v.roundIndex === 2, "round 3 assign");
 check(
   host.view.rounds[2].groups.length === 2,
-  "9 players on spiderman (5 parts) -> 2 groups"
+  "9 players on spiderman (7 parts) -> 2 groups"
 );
+check(host.view.rounds[2].drawSeconds === 60, "round 3 timer starts at default");
 
 console.log("Round 3:");
 await playRound("spiderman");

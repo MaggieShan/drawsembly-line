@@ -14,12 +14,16 @@ export type PublicPlayer = {
   isHost: boolean;
 };
 
+export type ShuffleMode = "one_each" | "fill_all";
+
 /** One group of players painting one canvas together. */
 export type GroupView = {
   themeId: string;
+  /** How this group auto-assigns its preset parts. */
+  assignmentMode: ShuffleMode;
   /** playerIds of this group's members. */
   members: string[];
-  /** partId -> playerId. Only sent to the host (players see just their own parts). */
+  /** partId -> playerId. Sent to the host before reveal, then to everyone once revealed. */
   assignments?: Record<string, string>;
   /** partIds that have at least one snapshot. */
   submittedParts: string[];
@@ -30,6 +34,8 @@ export type GroupView = {
 export type RoundView = {
   /** Players are split into groups; each group paints its own canvas. */
   groups: GroupView[];
+  /** Drawing duration for this round, in seconds. */
+  drawSeconds: number;
   revealed: boolean;
 };
 
@@ -58,9 +64,18 @@ export type ClientMessage =
   | { type: "join"; token?: string; name: string }
   | { type: "start_game" }
   | { type: "set_theme"; groupIndex: number; themeId: string }
-  | { type: "reassign"; groupIndex: number; partId: string; playerId: string }
+  | {
+      type: "reassign";
+      groupIndex: number;
+      partId: string;
+      playerId: string | null;
+    }
   | { type: "move_player"; playerId: string; groupIndex: number }
   | { type: "shuffle_groups" }
+  | { type: "set_group_assignment_mode"; groupIndex: number; mode: ShuffleMode }
+  | { type: "set_round_timer"; roundIndex: number; seconds: number }
+  | { type: "add_group" }
+  | { type: "remove_group"; groupIndex: number }
   | { type: "start_round" }
   | { type: "snapshot"; groupIndex: number; partId: string; dataUrl: string }
   | { type: "done"; groupIndex: number; partId: string }

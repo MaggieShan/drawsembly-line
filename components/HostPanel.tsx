@@ -1,7 +1,22 @@
 "use client";
+import { useEffect, useState } from "react";
 
 import type { ClientMessage, ClientView, GroupView } from "@/lib/protocol";
-import { THEMES, getTheme } from "@/lib/themes";
+import {
+  MAX_DRAW_SECONDS,
+  MIN_DRAW_SECONDS,
+  THEMES,
+  getTheme,
+} from "@/lib/themes";
+
+const TIMER_PRESETS = [30, 60, 90, 120];
+
+function formatTimer(seconds: number) {
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return remainder === 0 ? `${minutes}m` : `${minutes}m ${remainder}s`;
+}
 
 export default function HostPanel({
   view,
@@ -28,12 +43,21 @@ export default function HostPanel({
 
       {view.phase === "assign" && (
         <>
-          <button
-            className="btn-secondary w-full text-sm"
-            onClick={() => send({ type: "shuffle_groups" })}
-          >
-            🔀 Re-shuffle groups (resets presets &amp; parts)
-          </button>
+          <RoundTimerControl view={view} send={send} />
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+            <button
+              className="btn-secondary w-full text-sm"
+              onClick={() => send({ type: "shuffle_groups" })}
+            >
+              🔀 Re-shuffle groups
+            </button>
+            <button
+              className="btn-secondary w-full text-sm"
+              onClick={() => send({ type: "add_group" })}
+            >
+              ➕ Add empty group
+            </button>
+          </div>
 
           <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
             {round.groups.map((group, gi) => (
@@ -86,13 +110,14 @@ export default function HostPanel({
             className="btn-primary w-full"
             onClick={() => send({ type: "start_round" })}
           >
-            🖌️ Start drawing (60s)
+            🖌️ Start drawing ({formatTimer(round.drawSeconds)})
           </button>
         </>
       )}
 
       {view.phase === "drawing" && (
         <>
+          <RoundTimerControl view={view} send={send} />
           <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
             {round.groups.map((group, gi) => {
               const theme = getTheme(group.themeId);
@@ -105,6 +130,7 @@ export default function HostPanel({
                   {theme.parts
                     .filter((part) => !part.prefill)
                     .map((part) => {
+                      const assignedPlayerId = assignments[part.id];
                       const submitted = group.submittedParts.includes(part.id);
                       const done = group.doneParts.includes(part.id);
                       return (
@@ -113,9 +139,20 @@ export default function HostPanel({
                           className="flex items-center justify-between text-sm"
                         >
                           <span className="truncate text-white/70">
-                            {part.label} · {playerName(assignments[part.id])}
+                            {part.label} ·{" "}
+                            {assignedPlayerId
+                              ? playerName(assignedPlayerId)
+                              : "left out"}
                           </span>
-                          <span>{done ? "✅" : submitted ? "✏️" : "⬜"}</span>
+                          <span>
+                            {!assignedPlayerId
+                              ? "➖"
+                              : done
+                                ? "✅"
+                                : submitted
+                                  ? "✏️"
+                                  : "⬜"}
+                          </span>
                         </div>
                       );
                     })}
@@ -170,6 +207,79 @@ export default function HostPanel({
   );
 }
 
+function RoundTimerControl({
+  view,
+  send,
+}: {
+  view: ClientView;
+  send: (msg: ClientMessage) => void;
+}) {
+  const round = view.rounds[view.roundIndex];
+  const [value, setValue] = useState(String(round.drawSeconds));
+
+  useEffect(() => {
+    setValue(String(round.drawSeconds));
+  }, [round.drawSeconds, view.roundIndex]);
+
+  const commit = (nextValue = value) => {
+    const seconds = Number(nextValue);
+    if (!Number.isFinite(seconds)) {
+      setValue(String(round.drawSeconds));
+      return;
+    }
+    send({ type: "set_round_timer", roundIndex: view.roundIndex, seconds });
+  };
+
+  return (
+    <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
+      <label className="block text-sm">
+        <span className="mb-1 block text-white/60">Drawing timer</span>
+        <div className="flex items-center gap-2">
+          <input
+            className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 tabular-nums"
+            min={MIN_DRAW_SECONDS}
+            max={MAX_DRAW_SECONDS}
+            step={5}
+            type="number"
+            value={value}
+            onBlur={() => commit()}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+            }}
+          />
+          <span className="text-sm text-white/50">seconds</span>
+        </div>
+      </label>
+      <div className="flex flex-wrap gap-1.5">
+        {TIMER_PRESETS.map((seconds) => (
+          <button
+            key={seconds}
+            type="button"
+            className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+              round.drawSeconds === seconds
+                ? "bg-violet-500 text-white"
+                : "bg-white/10 text-white/70 hover:bg-white/20"
+            }`}
+            onClick={() => {
+              setValue(String(seconds));
+              commit(String(seconds));
+            }}
+          >
+            {formatTimer(seconds)}
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-white/40">
+        {view.phase === "drawing"
+          ? "Changing this updates the live countdown for this round."
+          : "Applies to this round only; later rounds can use different timers."}{" "}
+        Range: {MIN_DRAW_SECONDS}–{MAX_DRAW_SECONDS}s.
+      </p>
+    </div>
+  );
+}
+
 function GroupEditor({
   view,
   send,
@@ -190,11 +300,19 @@ function GroupEditor({
   return (
     <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
       <p className="font-semibold">
-        Group {groupIndex + 1}{" "}
-        <span className="text-white/50">
-          · {group.members.length} player
-          {group.members.length === 1 ? "" : "s"}
+        <span>
+          Group {groupIndex + 1}{" "}
+          <span className="text-white/50">
+            · {group.members.length} player
+            {group.members.length === 1 ? "" : "s"}
+          </span>
         </span>
+        <button
+          className="float-right rounded-lg border border-rose-400/30 px-2 py-0.5 text-xs font-semibold text-rose-200 hover:bg-rose-500/10"
+          onClick={() => send({ type: "remove_group", groupIndex })}
+        >
+          Remove
+        </button>
       </p>
 
       <label className="block text-sm">
@@ -214,9 +332,32 @@ function GroupEditor({
         </select>
       </label>
 
+      <label className="block text-sm">
+        <span className="mb-1 block text-white/60">Part shuffling</span>
+        <select
+          className="w-full rounded-lg border border-white/15 bg-black/40 px-2 py-1.5"
+          value={group.assignmentMode}
+          onChange={(e) =>
+            send({
+              type: "set_group_assignment_mode",
+              groupIndex,
+              mode: e.target.value === "fill_all" ? "fill_all" : "one_each",
+            })
+          }
+        >
+          <option value="one_each">One each, extras optional</option>
+          <option value="fill_all">Fill every part</option>
+        </select>
+      </label>
+
       <div className="space-y-1">
         <p className="text-xs font-medium uppercase tracking-wide text-white/40">
           Parts
+        </p>
+        <p className="text-xs text-white/40">
+          {group.assignmentMode === "fill_all"
+            ? "Every drawable part is assigned; some players may get multiple parts."
+            : "Extra parts can be left out if nobody claims them."}
         </p>
         {theme.parts
           .filter((part) => !part.prefill)
@@ -233,12 +374,12 @@ function GroupEditor({
                     type: "reassign",
                     groupIndex,
                     partId: part.id,
-                    playerId: e.target.value,
+                    playerId: e.target.value || null,
                   })
                 }
               >
-                <option value="" disabled>
-                  —
+                <option value="">
+                  Leave out
                 </option>
                 {group.members.map((id) => {
                   const p = member(id);
